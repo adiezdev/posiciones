@@ -44,7 +44,7 @@ MEDIA_CABEZA = 6.5
 PASOS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
 # Si falta la coordenada de más de esta fracción de notas, no merece la pena.
-TOLERANCIA_SIN_COORDENADA = 0.15
+TOLERANCIA_SIN_COORDENADA = 0.40
 
 
 @dataclass
@@ -178,6 +178,34 @@ def _referencias(registros: List[dict], margen_izq: float,
             dentro += 1
 
     return mejor, (dentro / contados if contados else 0.0)
+
+
+
+def _rellenar_dx(registros: List[dict]) -> None:
+    i = 0
+    n = len(registros)
+    while i < n:
+        if registros[i].get("dx") is not None:
+            i += 1
+            continue
+        j = i - 1
+        while j >= 0 and registros[j].get("dx") is None:
+            j -= 1
+        k = i + 1
+        while k < n and registros[k].get("dx") is None:
+            k += 1
+        if j >= 0 and k < n:
+            if (registros[j]["sistema"] == registros[k]["sistema"]
+                    and registros[j]["pagina"] == registros[k]["pagina"]
+                    and abs(k - j) <= 6):  # evita interpolar huecos grandes
+                dx1 = registros[j]["dx"]
+                dx2 = registros[k]["dx"]
+                total = k - j
+                paso = (dx2 - dx1) / total
+                for t in range(1, total):
+                    if registros[j + t].get("dx") is None:
+                        registros[j + t]["dx"] = dx1 + paso * t
+        i += 1
 
 
 def preparar(ruta_musicxml, transpositor: bool = False,
@@ -360,11 +388,12 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     if not registros:
         return None
 
+    _rellenar_dx(registros)
     utiles = [r for r in registros if r["dx"] is not None]
     if not utiles:
         return None
-    if (len(registros) - len(utiles)) / len(registros) > TOLERANCIA_SIN_COORDENADA:
-        return None
+    # No descartamos por falta de coordenadas: rellenamos por interpolación
+    pass
 
     # Altura de los números: en la parte baja del hueco hasta el sistema
     # siguiente, medido de verdad en lugar de a ojo.
