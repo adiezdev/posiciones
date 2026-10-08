@@ -7,6 +7,27 @@ services:
       - "8080:8000"
     volumes:
       - ./datos:/app/datos
+      - ./static:/app/static
     environment:
       - PYTHONUNBUFFERED=1
       - TZ=Europe/Madrid
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: posiciones-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      DOCKER_API_VERSION: "1.41"
+      WATCHTOWER_POLL_INTERVAL: 300
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+      TZ: Europe/Madrid
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
