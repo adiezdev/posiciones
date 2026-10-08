@@ -1,13 +1,36 @@
 services:
   posiciones:
-    build: .
-    container_name: posiciones-trombon
+    image: ghcr.io/adiezdev/posiciones:latest
+    container_name: posiciones
     restart: unless-stopped
     ports:
-      # El número de la IZQUIERDA es por el que entras desde el navegador.
-      # Si el 8080 ya lo está usando otra cosa en tu NAS, cámbialo por 8081.
-      # El de la derecha no se toca nunca.
       - "8080:8000"
     volumes:
-      # Aquí se guardan los PDF que subes y los resultados.
-      - ./datos:/datos
+      - ./datos:/app/datos
+      - ./static:/app/static
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Europe/Madrid
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: posiciones-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      # Si la imagen es privada en GHCR, añade REPO_USER/REPO_PASS
+      # REPO_USER: adiezdev
+      # REPO_PASS: <GITHUB_TOKEN_CON_read:packages>
+      DOCKER_API_VERSION: "1.41"
+      WATCHTOWER_POLL_INTERVAL: 300
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_CLEANUP: "true"
+      TZ: Europe/Madrid
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
