@@ -32,7 +32,7 @@ ALTO_PENTAGRAMA = 40.0
 # sistemas van a 60 décimos y en una espaciada a 200. Los ponemos en la parte
 # baja del hueco, lejos de los matices y los reguladores, que viven pegados al
 # pentagrama, pero sin llegar a tocar el sistema de abajo.
-FRACCION_HUECO = 0.54
+FRACCION_HUECO = 0.50
 SEPARACION_MIN = 18.0
 SEPARACION_MAX = 90.0
 HUECO_POR_DEFECTO = 60.0
@@ -441,7 +441,8 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         # no estampar nada y que quien llame recurra a redibujar.
         return None
 
-    # Fallback dx: primero por vecino cercano; si sigue None, usar x_medida-x_sistema relativo
+        # Fallback dx completo
+    # 1. vecino
     for i in range(len(registros)):
         if registros[i]["dx"] is None:
             bestj, bestd = -1, 10**12
@@ -452,27 +453,42 @@ def preparar(ruta_musicxml, transpositor: bool = False,
                         bestd = d; bestj = j
             if bestj >= 0:
                 registros[i]["dx"] = registros[bestj]["dx"]
-
-    # Segundo fallback: estimar desde coordenadas del sistema/medida si existen
+    # 2. x_medida/x_sistema
     for r in registros:
         if r["dx"] is None:
             if r.get("x_medida") is not None and r.get("x_sistema") is not None:
-                # aproximación: usar desplazamiento relativo dentro del sistema
-                r["dx"] = r["x_medida"] - r["x_sistema"]
-            elif r.get("x_sistema") is not None:
-                r["dx"] = 0.0
+                try:
+                    r["dx"] = r["x_medida"] - r["x_sistema"]
+                except Exception:
+                    pass
             elif r.get("x_medida") is not None:
                 r["dx"] = 0.0
+            elif r.get("x_sistema") is not None:
+                r["dx"] = 0.0
+    # 3. interpolar por offset entre todos los que tengan dx (incluso lejanos, mismo sistema)
+    for i in range(len(registros)):
+        if registros[i]["dx"] is not None:
+            continue
+        j = i - 1; k = i + 1
+        while j >= 0 and registros[j]["dx"] is None: j -= 1
+        while k < n and registros[k]["dx"] is None: k += 1
+        if j >= 0 and k < n and registros[j]["sistema"]==registros[k]["sistema"] and registros[j]["pagina"]==registros[k]["pagina"]:
+            dx1 = registros[j]["dx"]; dx2 = registros[k]["dx"]
+            total = k-j
+            paso = (dx2-dx1)/total
+            for t in range(1,total):
+                if registros[j+t]["dx"] is None:
+                    registros[j+t]["dx"] = dx1 + paso*t
+            continue
+        # 4. copiar vecino aunque sistema distinto? no. copiar más cercano global
+        if j >= 0:
+            registros[i]["dx"] = registros[j]["dx"]
+            continue
+        if k < n:
+            registros[i]["dx"] = registros[k]["dx"]
+            continue
+        registros[i]["dx"] = 0.0
 
-    for r in registros:
-        if r["dx"] is None:
-            r["x"] = None
-        elif modo == "medida":
-            r["x"] = r["x_medida"] + r["dx"] + MEDIA_CABEZA
-        elif modo == "sistema":
-            r["x"] = r["x_sistema"] + r["dx"] + MEDIA_CABEZA
-        else:
-            r["x"] = r["dx"] + MEDIA_CABEZA
 
     elegidas = elegir_posiciones(
         [Nota(midi=r["midi"], offset=r["offset"], duracion=r["duracion"])
@@ -743,7 +759,7 @@ def _cuerpo_por_sistema(marcas: List[Marca], espacio: float) -> float:
 
 def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
              tamano_relativo: float = 2.0,
-             fraccion_hueco: float = 0.52) -> Tuple[int, bool]:
+             fraccion_hueco: float = 0.48) -> Tuple[int, bool]:
     """
     Dibuja los números sobre el PDF original. Devuelve (cuántos, si se han
     usado los pentagramas medidos en el propio PDF).
