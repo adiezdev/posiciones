@@ -32,7 +32,7 @@ ALTO_PENTAGRAMA = 40.0
 # sistemas van a 60 décimos y en una espaciada a 200. Los ponemos en la parte
 # baja del hueco, lejos de los matices y los reguladores, que viven pegados al
 # pentagrama, pero sin llegar a tocar el sistema de abajo.
-FRACCION_HUECO = 0.70
+FRACCION_HUECO = 0.62
 SEPARACION_MIN = 18.0
 SEPARACION_MAX = 90.0
 HUECO_POR_DEFECTO = 60.0
@@ -196,34 +196,32 @@ def _rellenar_dx(registros: List[dict]) -> None:
             k += 1
         if j >= 0 and k < n:
             if (registros[j]["sistema"] == registros[k]["sistema"]
-                    and registros[j]["pagina"] == registros[k]["pagina"]
-                    and abs(k - j) <= 14):
+                    and registros[j]["pagina"] == registros[k]["pagina"]):
                 dx1 = registros[j]["dx"]
                 dx2 = registros[k]["dx"]
                 total = k - j
-                paso = (dx2 - dx1) / total
+                paso = (dx2 - dx1) / total if total > 0 else 0
                 for t in range(1, total):
                     if registros[j + t].get("dx") is None:
                         registros[j + t]["dx"] = dx1 + paso * t
                 i = k
                 continue
-        # extrapolación: si solo hay vecino anterior válido
-        if j >= 0 and (i - j) <= 8:
+        if j >= 0:
+            # copiar hacia delante hasta encontrar válido o fin sistema
             dx1 = registros[j]["dx"]
-            dx2 = dx1  # horizontal plano
-            total = i - j
-            # mejor copiar dx1 hacia delante corto
-            for t in range(1, total + 1):
-                if registros[j + t].get("dx") is None:
-                    registros[j + t]["dx"] = dx1
-            i += 1
+            t = 1
+            while j + t < n and registros[j + t].get("dx") is None and t <= 20:
+                registros[j + t]["dx"] = dx1
+                t += 1
+            i = j + t
             continue
-        # extrapolación hacia atrás
-        if k < n and (k - i) <= 8:
+        if k < n:
             dxk = registros[k]["dx"]
-            for t in range(0, k - i):
+            t = 0
+            while i + t < k and t <= 20:
                 if registros[i + t].get("dx") is None:
                     registros[i + t]["dx"] = dxk
+                t += 1
             i = k
             continue
         i += 1
@@ -456,7 +454,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     elegidas = elegir_posiciones(
         [Nota(midi=r["midi"], offset=r["offset"], duracion=r["duracion"])
          for r in registros],
-        transpositor, False, 0.85)
+        transpositor, preferir_cercanas, peso_movimiento)
 
     # Las notas fuera del alcance del instrumento llevan un "?" en lugar de
     # quedarse sin nada: así se ve que la herramienta las ha leído y que el
@@ -722,7 +720,7 @@ def _cuerpo_por_sistema(marcas: List[Marca], espacio: float) -> float:
 
 def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
              tamano_relativo: float = 2.0,
-             fraccion_hueco: float = 0.68) -> Tuple[int, bool]:
+             fraccion_hueco: float = 0.58) -> Tuple[int, bool]:
     """
     Dibuja los números sobre el PDF original. Devuelve (cuántos, si se han
     usado los pentagramas medidos en el propio PDF).
