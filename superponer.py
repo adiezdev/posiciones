@@ -32,7 +32,7 @@ ALTO_PENTAGRAMA = 40.0
 # sistemas van a 60 décimos y en una espaciada a 200. Los ponemos en la parte
 # baja del hueco, lejos de los matices y los reguladores, que viven pegados al
 # pentagrama, pero sin llegar a tocar el sistema de abajo.
-FRACCION_HUECO = 0.65
+FRACCION_HUECO = 0.70
 SEPARACION_MIN = 18.0
 SEPARACION_MAX = 90.0
 HUECO_POR_DEFECTO = 60.0
@@ -197,7 +197,7 @@ def _rellenar_dx(registros: List[dict]) -> None:
         if j >= 0 and k < n:
             if (registros[j]["sistema"] == registros[k]["sistema"]
                     and registros[j]["pagina"] == registros[k]["pagina"]
-                    and abs(k - j) <= 6):  # evita interpolar huecos grandes
+                    and abs(k - j) <= 10):  # evita interpolar huecos grandes
                 dx1 = registros[j]["dx"]
                 dx2 = registros[k]["dx"]
                 total = k - j
@@ -701,7 +701,7 @@ def _cuerpo_por_sistema(marcas: List[Marca], espacio: float) -> float:
 
 def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
              tamano_relativo: float = 2.0,
-             fraccion_hueco: float = 0.60) -> Tuple[int, bool]:
+             fraccion_hueco: float = 0.68) -> Tuple[int, bool]:
     """
     Dibuja los números sobre el PDF original. Devuelve (cuántos, si se han
     usado los pentagramas medidos en el propio PDF).
