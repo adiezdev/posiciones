@@ -53,10 +53,10 @@ PENAL_ARMONICO_7 = 6.0    # el 7º armónico es inservible en la práctica
 PENAL_PEDAL = 4.0         # pedales: solo si no hay otra cosa
 PENAL_AGUDO = 0.25        # armónicos 9+ son más delicados de afinar
 PENAL_TRANSPOSITOR = 1.2  # usar la válvula cuesta algo
-PESO_MOVIMIENTO = 0.45    # coste por cada posición de vara recorrida
+PESO_MOVIMIENTO = 0.25    # coste por cada posición de vara recorrida
 PENAL_CAMBIO_VALVULA = 0.9
-PENAL_SALTO_MISMO_ARMONICO = 0.3
-PENAL_LIGADURA_MISMO_ARMONICO = 1.2  # mover vara ligando en el mismo armónico = glissando
+PENAL_SALTO_MISMO_ARMONICO = 0.1
+PENAL_LIGADURA_MISMO_ARMONICO = 0.8  # mover vara ligando en el mismo armónico = glissando
 URGENCIA_MAX = 4.0
 
 
