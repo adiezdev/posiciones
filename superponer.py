@@ -452,8 +452,8 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         validos = [(registros[k]["offset"], registros[k]["dx"])
                    for k in idxs if registros[k]["dx"] is not None]
         if not validos:
-            for k in idxs:
-                registros[k]["dx"] = 0.0
+            # Sin ninguna coordenada fiable en el sistema: mejor no estampar
+            # que poner los números en x=0.
             continue
         validos.sort()
         o1, dx1 = validos[0]
@@ -473,9 +473,8 @@ def preparar(ruta_musicxml, transpositor: bool = False,
 
     for r in registros:
         if r["dx"] is None:
-            r["dx"] = 0.0
-
-    for r in registros:
+            r["x"] = None
+            continue
         if modo == "medida":
             r["x"] = r["x_medida"] + r["dx"] + MEDIA_CABEZA
         elif modo == "sistema":
