@@ -21,9 +21,8 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     environment:
-      # Si la imagen es privada en GHCR, añade REPO_USER/REPO_PASS
-      # REPO_USER: adiezdev
-      # REPO_PASS: <GITHUB_TOKEN_CON_read:packages>
+      REPO_USER: adiezdev
+      REPO_PASS: ${GITHUB_TOKEN}
       DOCKER_API_VERSION: "1.41"
       WATCHTOWER_POLL_INTERVAL: 300
       WATCHTOWER_LABEL_ENABLE: "true"
