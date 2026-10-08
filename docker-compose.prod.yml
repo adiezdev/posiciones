@@ -1,0 +1,13 @@
+services:
+  posiciones:
+    image: ghcr.io/adiezdev/posiciones:latest
+    container_name: posiciones
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./datos:/app/datos
+      - ./static:/app/static
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TZ=Europe/Madrid
