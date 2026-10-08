@@ -197,7 +197,7 @@ def _rellenar_dx(registros: List[dict]) -> None:
         if j >= 0 and k < n:
             if (registros[j]["sistema"] == registros[k]["sistema"]
                     and registros[j]["pagina"] == registros[k]["pagina"]
-                    and abs(k - j) <= 10):  # evita interpolar huecos grandes
+                    and abs(k - j) <= 14):
                 dx1 = registros[j]["dx"]
                 dx2 = registros[k]["dx"]
                 total = k - j
@@ -205,6 +205,27 @@ def _rellenar_dx(registros: List[dict]) -> None:
                 for t in range(1, total):
                     if registros[j + t].get("dx") is None:
                         registros[j + t]["dx"] = dx1 + paso * t
+                i = k
+                continue
+        # extrapolación: si solo hay vecino anterior válido
+        if j >= 0 and (i - j) <= 8:
+            dx1 = registros[j]["dx"]
+            dx2 = dx1  # horizontal plano
+            total = i - j
+            # mejor copiar dx1 hacia delante corto
+            for t in range(1, total + 1):
+                if registros[j + t].get("dx") is None:
+                    registros[j + t]["dx"] = dx1
+            i += 1
+            continue
+        # extrapolación hacia atrás
+        if k < n and (k - i) <= 8:
+            dxk = registros[k]["dx"]
+            for t in range(0, k - i):
+                if registros[i + t].get("dx") is None:
+                    registros[i + t]["dx"] = dxk
+            i = k
+            continue
         i += 1
 
 
@@ -435,7 +456,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     elegidas = elegir_posiciones(
         [Nota(midi=r["midi"], offset=r["offset"], duracion=r["duracion"])
          for r in registros],
-        transpositor, preferir_cercanas, peso_movimiento)
+        transpositor, False, 0.85)
 
     # Las notas fuera del alcance del instrumento llevan un "?" en lugar de
     # quedarse sin nada: así se ve que la herramienta las ha leído y que el
