@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Posiciones de trombón</title>
+<style>
+  :root {
+    --papel: #FBFAF7;
+    --tinta: #16191D;
+    --tinta-media: #636A73;
+    --pauta: #CBC9C1;
+    --laton: #96691B;
+    --rojo: #8C2F39;
+    --verde: #2E6B4E;
+    --serif: ui-serif, "Iowan Old Style", Georgia, "Times New Roman", serif;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --papel: #15171A;
+      --tinta: #E8E6E1;
+      --tinta-media: #969CA5;
+      --pauta: #3A3E44;
+      --laton: #D8A845;
+      --rojo: #E08089;
+      --verde: #7FC0A0;
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: env(safe-area-inset-top, 0) 24px calc(64px + env(safe-area-inset-bottom, 0));
+    background: var(--papel);
+    color: var(--tinta);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.55;
+  }
+
+  main { max-width: 620px; margin: 0 auto; }
+
+  header { padding: 72px 0 40px; }
+
+  h1 {
+    font-family: var(--serif);
+    font-size: clamp(2.1rem, 6vw, 2.9rem);
+    font-weight: 400;
+    letter-spacing: -0.015em;
+    line-height: 1.1;
+    margin: 0 0 12px;
+  }
+
+  header p {
+    margin: 0;
+    max-width: 46ch;
+    color: var(--tinta-media);
+  }
+
+  /* --- zona de subida dibujada como un pentagrama --- */
+
+  #zona {
+    position: relative;
+    display: block;
+    width: 100%;
+    border: 0;
+    padding: 56px 24px;
+    background: transparent;
+    font: inherit;
+    color: inherit;
+    text-align: center;
+    cursor: pointer;
+  }
+
+  #zona::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      to bottom,
+      var(--pauta) 0 1px,
+      transparent 1px 22px
+    );
+    background-size: 100% 110px;
+    background-repeat: no-repeat;
+    background-position: center;
+    opacity: 0.9;
+  }
+
+  #zona span {
+    position: relative;
+    display: inline-block;
+    padding: 10px 18px;
+    background: var(--papel);
+    font-family: var(--serif);
+    font-size: 1.15rem;
+  }
+
+  #zona small {
+    position: relative;
+    display: block;
+    margin-top: 10px;
+    color: var(--tinta-media);
+    font-size: 0.85rem;
+  }
+
+  #zona:focus-visible { outline: 2px solid var(--laton); outline-offset: 4px; }
+  #zona.encima::before { opacity: 1; }
+  #zona.encima span { color: var(--laton); }
+
+  .opciones {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 28px 0 0;
+    padding-top: 20px;
+    border-top: 1px solid var(--pauta);
+  }
+  .opciones input { margin-top: 5px; flex: none; }
+  .opciones label { color: var(--tinta-media); font-size: 0.9rem; }
+  .opciones b { color: var(--tinta); font-weight: 500; }
+
+  .campos {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 18px;
+    margin-top: 22px;
+  }
+  @media (min-width: 520px) {
+    .campos { grid-template-columns: 1.6fr 1fr; }
+  }
+  .campo { margin: 0; }
+  .campo label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.85rem;
+    color: var(--tinta-media);
+  }
+  .campo input, .campo select {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--pauta);
+    border-radius: 0;
+    background: var(--papel);
+    color: var(--tinta);
+    font: inherit;
+    font-size: 0.95rem;
+  }
+  .campo input:focus-visible, .campo select:focus-visible {
+    outline: 2px solid var(--laton);
+    outline-offset: 1px;
+  }
+
+  #barra {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 44px;
+    padding-bottom: 18px;
+  }
+  #barra #cuenta { color: var(--tinta-media); font-size: 0.9rem; }
+  .barra-botones { display: flex; gap: 10px; }
+
+  /* --- lista de trabajos --- */
+
+  #lista { margin-top: 44px; }
+
+  .trabajo {
+    padding: 22px 0;
+    border-top: 1px solid var(--pauta);
+  }
+
+  .cabecera {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 16px;
+  }
+
+  .nombre {
+    font-family: var(--serif);
+    font-size: 1.1rem;
+    overflow-wrap: anywhere;
+  }
+
+  .estado { color: var(--tinta-media); font-size: 0.85rem; white-space: nowrap; }
+  .estado.mal { color: var(--rojo); }
+  .estado.bien { color: var(--verde); }
+
+  /* --- la vara: indicador de progreso en 7 posiciones --- */
+
+  .vara { position: relative; height: 34px; margin: 18px 0 4px; }
+  .vara::before {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: 11px;
+    height: 1px;
+    background: var(--pauta);
+  }
+  .marcas {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    font-size: 0.72rem;
+    color: var(--tinta-media);
+  }
+  .marcas i {
+    font-style: normal;
+    text-align: center;
+    padding-top: 18px;
+  }
+  .corredera {
+    position: absolute;
+    top: 5px;
+    width: 13px; height: 13px;
+    margin-left: -6.5px;
+    border-radius: 50%;
+    background: var(--laton);
+    transition: left 700ms cubic-bezier(.4,0,.2,1);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .corredera { transition: none; }
+  }
+
+  /* --- resultado --- */
+
+  .acciones { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+
+  a.boton, button.boton {
+    display: inline-block;
+    padding: 9px 18px;
+    border: 1px solid var(--tinta);
+    background: var(--tinta);
+    color: var(--papel);
+    font: inherit;
+    font-size: 0.92rem;
+    text-decoration: none;
+    cursor: pointer;
+  }
+  a.boton.secundario, button.boton.secundario {
+    background: transparent;
+    color: var(--tinta);
+    border-color: var(--pauta);
+  }
+  a.boton:focus-visible, button.boton:focus-visible {
+    outline: 2px solid var(--laton); outline-offset: 2px;
+  }
+
+  .avisos { margin-top: 18px; font-size: 0.88rem; }
+  .avisos summary { cursor: pointer; color: var(--tinta-media); }
+  .avisos ul { margin: 12px 0 0; padding-left: 18px; }
+  .avisos li { margin-bottom: 6px; }
+  .avisos li.error { color: var(--rojo); }
+
+  .fallo {
+    margin-top: 12px;
+    padding: 14px 16px;
+    border-left: 2px solid var(--rojo);
+    font-size: 0.9rem;
+    color: var(--tinta-media);
+  }
+
+  .vacio {
+    margin-top: 44px;
+    padding-top: 22px;
+    border-top: 1px solid var(--pauta);
+    color: var(--tinta-media);
+    font-size: 0.9rem;
+  }
+
+  footer {
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--pauta);
+    color: var(--tinta-media);
+    font-size: 0.82rem;
+  }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Posiciones de trombón</h1>
+    <p>Sube una partitura en PDF y te la devuelve con el número de posición
+       de vara escrito debajo de cada nota.</p>
+  </header>
+
+  <button id="zona" type="button">
+    <span>Arrastra aquí el PDF o pulsa para elegirlo</span>
+    <small>Clave de fa, parte en Do. Una partitura de varias páginas puede tardar unos minutos.</small>
+  </button>
+  <input id="fichero" type="file" accept="application/pdf,.pdf" multiple hidden>
+
+  <div class="opciones">
+    <input id="original" type="checkbox">
+    <label for="original">
+      <b>No redibujar: escribir sobre mi PDF</b><br>
+      Estampa los números sobre tu archivo tal cual, conservando su
+      maquetación exacta. Así es imposible que se altere una nota. Si el PDF
+      no trae las coordenadas necesarias, avisa y redibuja como siempre.
+    </label>
+  </div>
+
+  <div class="opciones">
+    <input id="transpositor" type="checkbox">
+    <label for="transpositor">
+      <b>Mi trombón tiene válvula de fa</b><br>
+      Añade las posiciones con transpositor (T1 a T6) y permite las notas
+      por debajo del mi grave.
+    </label>
+  </div>
+
+  <div class="opciones">
+    <input id="reguladores" type="checkbox" checked>
+    <label for="reguladores">
+      <b>Quitar los reguladores</b><br>
+      El reconocimiento se inventa crescendos y diminuendos donde no los hay.
+      Los matices escritos (p, f, mf) se conservan igualmente.
+    </label>
+  </div>
+
+  <div class="campos">
+    <p class="campo">
+      <label for="titulo">Título de la partitura</label>
+      <input id="titulo" type="text" placeholder="Se toma del original si lo dejas vacío">
+    </p>
+    <p class="campo">
+      <label for="criterio">Al elegir entre varias posiciones</label>
+      <select id="criterio">
+        <option value="equilibrado" selected>Equilibrado (recomendado)</option>
+        <option value="cortas">Preferir posiciones cortas</option>
+        <option value="vara">Preferir mover poco la vara</option>
+      </select>
+    </p>
+    <p class="campo">
+      <label for="etiqueta">Texto de arriba a la izquierda</label>
+      <input id="etiqueta" type="text" value="Trombón 1 DO">
+    </p>
+    <p class="campo">
+      <label for="orientacion">Orientación del papel</label>
+      <select id="orientacion">
+        <option value="auto">La misma que el original</option>
+        <option value="horizontal">Horizontal</option>
+        <option value="vertical">Vertical</option>
+      </select>
+    </p>
+  </div>
+
+  <div id="barra" hidden>
+    <span id="cuenta"></span>
+    <span class="barra-botones">
+      <a class="boton" href="/api/descargar-todo">Descargar todas en un ZIP</a>
+      <button class="boton secundario" id="limpiar">Borrar las terminadas</button>
+    </span>
+  </div>
+
+  <div id="lista"></div>
+  <p class="vacio" id="vacio">Todavía no has subido ninguna partitura.</p>
+
+  <footer>
+    Los números son la posición más cómoda según el contexto, no la única
+    posible. Revisa siempre el resultado antes de tocarlo en un ensayo.
+  </footer>
+</main>
+
+<script>
+const ETAPAS = {
+  en_cola:      { texto: "En cola",                 marca: 0 },
+  reconociendo: { texto: "Leyendo la partitura",    marca: 2 },
+  anotando:     { texto: "Calculando posiciones",   marca: 4 },
+  generando:    { texto: "Dibujando el PDF",        marca: 6 },
+  listo:        { texto: "Listo",                   marca: 7 },
+  error:        { texto: "No ha salido",            marca: 0 }
+};
+
+const zona = document.getElementById("zona");
+const fichero = document.getElementById("fichero");
+const lista = document.getElementById("lista");
+const vacio = document.getElementById("vacio");
+const transpositor = document.getElementById("transpositor");
+const titulo = document.getElementById("titulo");
+const orientacion = document.getElementById("orientacion");
+const reguladores = document.getElementById("reguladores");
+const etiqueta = document.getElementById("etiqueta");
+const original = document.getElementById("original");
+const criterio = document.getElementById("criterio");
+const barra = document.getElementById("barra");
+const cuenta = document.getElementById("cuenta");
+const limpiar = document.getElementById("limpiar");
+
+let temporizador = null;
+
+zona.addEventListener("click", () => fichero.click());
+fichero.addEventListener("change", () => {
+  subir([...fichero.files]);
+  fichero.value = "";
+});
+
+["dragenter", "dragover"].forEach(ev =>
+  zona.addEventListener(ev, e => { e.preventDefault(); zona.classList.add("encima"); }));
+["dragleave", "drop"].forEach(ev =>
+  zona.addEventListener(ev, e => { e.preventDefault(); zona.classList.remove("encima"); }));
+zona.addEventListener("drop", e => subir([...e.dataTransfer.files]));
+
+async function subir(ficheros) {
+  const pdfs = ficheros.filter(f => f.type === "application/pdf" || /\.pdf$/i.test(f.name));
+  if (!pdfs.length) {
+    alert("Ese archivo no es un PDF. Sube la partitura en PDF.");
+    return;
+  }
+  for (const f of pdfs) {
+    const datos = new FormData();
+    datos.append("archivo", f);
+    datos.append("transpositor", transpositor.checked ? "true" : "false");
+    datos.append("orientacion", orientacion.value);
+    datos.append("sin_reguladores", reguladores.checked ? "true" : "false");
+    datos.append("etiqueta", etiqueta.value);
+    datos.append("criterio", criterio.value);
+    datos.append("mantener_original", original.checked ? "true" : "false");
+    // Si subes varios a la vez, el título escrito a mano solo vale para uno.
+    datos.append("titulo", pdfs.length === 1 ? titulo.value : "");
+    try {
+      const r = await fetch("/api/trabajos", { method: "POST", body: datos });
+      if (!r.ok) {
+        const e = await r.json().catch(() => ({}));
+        alert(e.detail || "No se ha podido subir el archivo.");
+      }
+    } catch {
+      alert("No hay conexión con el servidor. Comprueba que el contenedor sigue en marcha.");
+    }
+  }
+  titulo.value = "";
+  refrescar();
+}
+
+async function refrescar() {
+  let trabajos = [];
+  try {
+    trabajos = await (await fetch("/api/trabajos")).json();
+  } catch { return; }
+
+  vacio.hidden = trabajos.length > 0;
+
+  const listas = trabajos.filter(t => t.estado === "listo").length;
+  barra.hidden = listas < 2;
+  cuenta.textContent = listas === 1
+    ? "1 partitura terminada"
+    : `${listas} partituras terminadas`;
+  lista.innerHTML = trabajos.map(pintar).join("");
+
+  lista.querySelectorAll("[data-borrar]").forEach(b => {
+    b.onclick = async () => {
+      await fetch("/api/trabajos/" + b.dataset.borrar, { method: "DELETE" });
+      refrescar();
+    };
+  });
+
+  const activos = trabajos.some(t => !["listo", "error"].includes(t.estado));
+  clearTimeout(temporizador);
+  if (activos) temporizador = setTimeout(refrescar, 2500);
+}
+
+function escapar(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function pintar(t) {
+  const etapa = ETAPAS[t.estado] || ETAPAS.en_cola;
+  const clase = t.estado === "error" ? "mal" : t.estado === "listo" ? "bien" : "";
+  const izquierda = etapa.marca === 0 ? 0 : ((etapa.marca - 0.5) / 7) * 100;
+
+  let cuerpo = "";
+
+  if (t.estado === "error") {
+    cuerpo = `<p class="fallo">${escapar(t.error)}</p>
+      <div class="acciones">
+        <button class="boton secundario" data-borrar="${t.id}">Quitar de la lista</button>
+      </div>`;
+  } else if (t.estado === "listo") {
+    const avisos = t.avisos || [];
+    const errores = avisos.filter(a => a.gravedad === "error").length;
+    const resumen = avisos.length === 0
+      ? `${t.notas} notas anotadas, sin nada raro.`
+      : `${t.notas} notas anotadas. ${errores} puntos a revisar y ${avisos.length - errores} dudas.`;
+    const papel = t.papel ? ` Papel: ${t.papel}` +
+      (t.ancho_util_mm ? `, ancho útil ${t.ancho_util_mm} mm.` : ".") : "";
+    const nota = t.nota_modo ? ` ${t.nota_modo}` : "";
+    const coord = t.modo_x
+      ? ` Coordenadas relativas al ${t.modo_x} (encaje ${t.encaje}%).` : "";
+
+    cuerpo = `
+      <p style="margin:14px 0 0;color:var(--tinta-media);font-size:.9rem">${escapar(resumen + papel + coord + nota)}</p>
+      <div class="acciones">
+        <a class="boton" href="/api/trabajos/${t.id}/pdf">Descargar el PDF</a>
+        <a class="boton secundario" href="/api/trabajos/${t.id}/musicxml">Descargar MusicXML</a>
+        <button class="boton secundario" data-borrar="${t.id}">Borrar</button>
+      </div>
+      ${avisos.length ? `
+      <details class="avisos">
+        <summary>Ver qué conviene revisar</summary>
+        <ul>${avisos.map(a => `<li class="${a.gravedad === "error" ? "error" : ""}">
+          Compás ${escapar(a.compas)}: ${escapar(a.texto)}</li>`).join("")}</ul>
+      </details>` : ""}`;
+  } else {
+    cuerpo = `
+      <div class="vara">
+        <div class="corredera" style="left:${izquierda}%"></div>
+        <div class="marcas">${[1,2,3,4,5,6,7].map(n => `<i>${n}</i>`).join("")}</div>
+      </div>`;
+  }
+
+  return `<article class="trabajo">
+    <div class="cabecera">
+      <div class="nombre">${escapar(t.titulo || t.nombre)}</div>
+      <div class="estado ${clase}">${etapa.texto}</div>
+    </div>
+    ${cuerpo}
+  </article>`;
+}
+
+function ajustarCampos() {
+  const puesto = original.checked;
+  for (const el of [titulo, etiqueta, orientacion]) {
+    el.disabled = puesto;
+    el.closest(".campo").style.opacity = puesto ? 0.45 : 1;
+  }
+  reguladores.disabled = puesto;
+  reguladores.closest(".opciones").style.opacity = puesto ? 0.45 : 1;
+}
+limpiar.onclick = async () => {
+  if (!confirm("Se quitarán de la lista las partituras terminadas. " +
+               "Asegúrate de haberlas descargado antes.")) return;
+  limpiar.disabled = true;
+  try { await fetch("/api/borrar-terminados", { method: "POST" }); }
+  finally { limpiar.disabled = false; refrescar(); }
+};
+
+original.addEventListener("change", ajustarCampos);
+ajustarCampos();
+
+refrescar();
+</script>
+</body>
+</html>

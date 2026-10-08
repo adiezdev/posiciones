@@ -1,0 +1,13 @@
+services:
+  posiciones:
+    build: .
+    container_name: posiciones-trombon
+    restart: unless-stopped
+    ports:
+      # El número de la IZQUIERDA es por el que entras desde el navegador.
+      # Si el 8080 ya lo está usando otra cosa en tu NAS, cámbialo por 8081.
+      # El de la derecha no se toca nunca.
+      - "8080:8000"
+    volumes:
+      # Aquí se guardan los PDF que subes y los resultados.
+      - ./datos:/datos
