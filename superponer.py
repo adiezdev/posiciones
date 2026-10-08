@@ -441,58 +441,47 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         # no estampar nada y que quien llame recurra a redibujar.
         return None
 
-            # Fallback dx completo
+    # Fallback dx: para cada sistema, interpolación lineal por offset entre
+    # el primer y el último registro con dx válido. Rellena huecos grandes
+    # aunque entre medias no haya ninguna coordenada.
     nreg = len(registros)
-    for i in range(nreg):
-        if registros[i]["dx"] is None:
-            bestj, bestd = -1, 10**12
-            for j in range(nreg):
-                if registros[j]["dx"] is not None and registros[j]["sistema"] == registros[i]["sistema"] and registros[j]["pagina"] == registros[i]["pagina"]:
-                    d = abs(registros[j]["offset"] - registros[i]["offset"])
-                    if d < bestd:
-                        bestd = d; bestj = j
-            if bestj >= 0:
-                registros[i]["dx"] = registros[bestj]["dx"]
-    for i in range(nreg):
-        if registros[i]["dx"] is not None:
+    por_sis = {}
+    for k, r in enumerate(registros):
+        por_sis.setdefault((r["pagina"], r["sistema"]), []).append(k)
+    for keys, idxs in por_sis.items():
+        validos = [(registros[k]["offset"], registros[k]["dx"])
+                   for k in idxs if registros[k]["dx"] is not None]
+        if not validos:
+            for k in idxs:
+                registros[k]["dx"] = 0.0
             continue
-        j = i - 1; k = i + 1
-        while j >= 0 and registros[j]["dx"] is None: j -= 1
-        while k < nreg and registros[k]["dx"] is None: k += 1
-        if j >= 0 and k < nreg and registros[j]["sistema"]==registros[k]["sistema"] and registros[j]["pagina"]==registros[k]["pagina"]:
-            dx1 = registros[j]["dx"]; dx2 = registros[k]["dx"]
-            total = k-j
-            paso = (dx2-dx1)/total if total else 0
-            for t in range(1,total):
-                if registros[j+t]["dx"] is None:
-                    registros[j+t]["dx"] = dx1 + paso*t
+        validos.sort()
+        o1, dx1 = validos[0]
+        o2, dx2 = validos[-1]
+        rango = o2 - o1
+        if rango <= 0:
+            for k in idxs:
+                if registros[k]["dx"] is None:
+                    registros[k]["dx"] = dx1
             continue
-        if j >= 0:
-            registros[i]["dx"] = registros[j]["dx"]
-            continue
-        if k < nreg:
-            registros[i]["dx"] = registros[k]["dx"]
-            continue
-        registros[i]["dx"] = 0.0
+        for k in idxs:
+            if registros[k]["dx"] is not None:
+                continue
+            t = (registros[k]["offset"] - o1) / rango
+            t = min(max(t, 0.0), 1.0)   # ponytail: clamp, extrapolación si hiciera falta
+            registros[k]["dx"] = dx1 + (dx2 - dx1) * t
+
     for r in registros:
         if r["dx"] is None:
-            if r.get("x_medida") is not None and r.get("x_sistema") is not None:
-                try:
-                    r["dx"] = r["x_medida"] - r["x_sistema"]
-                except Exception:
-                    r["dx"] = 0.0
-            else:
-                r["dx"] = 0.0
+            r["dx"] = 0.0
+
     for r in registros:
-        if r["dx"] is None:
-            r["x"] = None
-        elif modo == "medida":
+        if modo == "medida":
             r["x"] = r["x_medida"] + r["dx"] + MEDIA_CABEZA
         elif modo == "sistema":
             r["x"] = r["x_sistema"] + r["dx"] + MEDIA_CABEZA
         else:
             r["x"] = r["dx"] + MEDIA_CABEZA
-
 
     elegidas = elegir_posiciones(
         [Nota(midi=r["midi"], offset=r["offset"], duracion=r["duracion"])
