@@ -239,7 +239,14 @@ def salud() -> dict:
         "audiveris": Path(AUDIVERIS).exists(),
         "mscore": shutil.which(MSCORE) is not None,
         "datos": str(DATOS),
+        "version": "1791459678",
     }
+
+
+
+@app.get("/api/version")
+def api_version() -> dict:
+    return {"version": "1791459678"}
 
 
 @app.post("/api/trabajos")
