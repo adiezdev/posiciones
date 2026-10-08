@@ -273,6 +273,20 @@
     font-size: 0.9rem;
   }
 
+  #toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.85);
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    display: none;
+    z-index: 1000;
+  }
+  #toast.show { display: block; }
   footer {
     margin-top: 56px;
     padding-top: 20px;
@@ -545,6 +559,27 @@ original.addEventListener("change", ajustarCampos);
 ajustarCampos();
 
 refrescar();
+
+let currentVersion = null;
+async function checkVersion() {
+  try {
+    const r = await fetch("/api/version?t=" + Date.now());
+    if (!r.ok) return;
+    const d = await r.json();
+    if (currentVersion === null) {
+      currentVersion = d.version;
+      return;
+    }
+    if (d.version && d.version !== currentVersion) {
+      const t = document.getElementById("toast");
+      if (t) t.classList.add("show");
+      setTimeout(() => window.location.reload(), 2500);
+    }
+  } catch (e) {}
+}
+checkVersion();
+setInterval(checkVersion, 10000);
 </script>
+  <div id="toast">Nueva versión disponible. Recarga la página.</div>
 </body>
 </html>
