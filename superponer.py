@@ -32,7 +32,7 @@ ALTO_PENTAGRAMA = 40.0
 # sistemas van a 60 décimos y en una espaciada a 200. Los ponemos en la parte
 # baja del hueco, lejos de los matices y los reguladores, que viven pegados al
 # pentagrama, pero sin llegar a tocar el sistema de abajo.
-FRACCION_HUECO = 0.56
+FRACCION_HUECO = 0.54
 SEPARACION_MIN = 18.0
 SEPARACION_MAX = 90.0
 HUECO_POR_DEFECTO = 60.0
@@ -441,7 +441,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         # no estampar nada y que quien llame recurra a redibujar.
         return None
 
-    # Fallback dx por vecino más cercano (offset)
+    # Fallback dx: primero por vecino cercano; si sigue None, usar x_medida-x_sistema relativo
     for i in range(len(registros)):
         if registros[i]["dx"] is None:
             bestj, bestd = -1, 10**12
@@ -452,6 +452,17 @@ def preparar(ruta_musicxml, transpositor: bool = False,
                         bestd = d; bestj = j
             if bestj >= 0:
                 registros[i]["dx"] = registros[bestj]["dx"]
+
+    # Segundo fallback: estimar desde coordenadas del sistema/medida si existen
+    for r in registros:
+        if r["dx"] is None:
+            if r.get("x_medida") is not None and r.get("x_sistema") is not None:
+                # aproximación: usar desplazamiento relativo dentro del sistema
+                r["dx"] = r["x_medida"] - r["x_sistema"]
+            elif r.get("x_sistema") is not None:
+                r["dx"] = 0.0
+            elif r.get("x_medida") is not None:
+                r["dx"] = 0.0
 
     for r in registros:
         if r["dx"] is None:
@@ -732,7 +743,7 @@ def _cuerpo_por_sistema(marcas: List[Marca], espacio: float) -> float:
 
 def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
              tamano_relativo: float = 2.0,
-             fraccion_hueco: float = 0.54) -> Tuple[int, bool]:
+             fraccion_hueco: float = 0.52) -> Tuple[int, bool]:
     """
     Dibuja los números sobre el PDF original. Devuelve (cuántos, si se han
     usado los pentagramas medidos en el propio PDF).
