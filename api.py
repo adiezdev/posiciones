@@ -142,7 +142,8 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
         if mantener_original:
             _guardar(tid, estado="anotando", modo="superpuesto")
             plano = superponer.preparar(partitura.cargar(crudo),
-                                        transpositor, cercanas, peso)
+                                        transpositor, cercanas, peso,
+                                        pdf=pdf_in)
             if plano is not None:
                 _guardar(tid, estado="generando")
                 pdf_out = d / "resultado.pdf"
@@ -154,6 +155,7 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
                     tid, estado="listo", notas=puestas,
                     modo_x=plano.modo_x,
                     pentagramas_medidos=medido,
+                    rellenadas=plano.rellenadas,
                     encaje=round(plano.acierto * 100),
                     fuera_rango=max(plano.total - puestas, 0),
                     titulo=titulo_manual.strip() or pdf_in.stem,

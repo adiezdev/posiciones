@@ -21,6 +21,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from xml.etree import ElementTree as ET
 
+from collections import Counter
+
 from posiciones import Nota, elegir_posiciones
 
 # Un pentagrama de cinco líneas mide cuatro espacios, y un espacio son diez
@@ -55,6 +57,7 @@ class Marca:
     y: float
     texto: str
     sistema: int = 0
+    estimada: bool = False   # la nota la hemos leído del PDF, no del OMR
 
 
 @dataclass
@@ -73,6 +76,7 @@ class Plano:
     # ninguna nota. Sin esto, un sistema de silencios desplaza todo lo demás
     # un pentagrama al emparejar.
     sistemas_pagina: Optional[Dict[int, List[int]]] = None
+    rellenadas: int = 0          # notas que solo existen en el PDF, no en el OMR
 
 
 # --- lectura del MusicXML ---------------------------------------------------
@@ -229,7 +233,8 @@ def _rellenar_dx(registros: List[dict]) -> None:
 
 def preparar(ruta_musicxml, transpositor: bool = False,
              preferir_cercanas: bool = False,
-             peso_movimiento=None) -> Optional[Plano]:
+             peso_movimiento=None,
+             pdf: Optional[Path] = None) -> Optional[Plano]:
     """
     Recorre el MusicXML reconstruyendo la posición de cada nota en la página.
     Devuelve None si no hay coordenadas utilizables.
@@ -291,6 +296,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     primera = True
 
     registros: List[dict] = []
+    descansos: List[dict] = []
     sin_coordenada = 0
 
     for medida in partes[0].findall("measure"):
@@ -376,6 +382,14 @@ def preparar(ruta_musicxml, transpositor: bool = False,
                 duracion = 0.0 if adorno else _f(hijo.findtext("duration")) / divisiones
 
                 if hijo.find("rest") is not None:
+                    rdx = hijo.get("default-x")
+                    if rdx is not None:
+                        # Los silencios no llevan número, pero su posición
+                        # sirve para no confundirlos con una nota olvidada.
+                        descansos.append({
+                            "dx": _f(rdx), "x_medida": x_medida,
+                            "x_sistema": x_sistema, "pagina": pagina,
+                            "sistema": max(sistema, 0)})
                     offset += duracion
                     continue
 
@@ -482,6 +496,17 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         else:
             r["x"] = r["dx"] + MEDIA_CABEZA
 
+    # Notas que el OMR no llegó a reconocer: en el PDF sí están, así que
+    # miramos la imagen, leemos la altura de cada cabeza sin número y la
+    # metemos en la secuencia para que el solver decida su posición como a
+    # cualquier otra. Se estampan en gris, para distinguir lo leído de lo
+    # estimado.
+    por_pag = _por_pagina(sistemas)
+    if pdf is not None:
+        for ancla, g in _fantasmas(pdf, registros, descansos, sistemas,
+                                   por_pag, ancho_pagina, modo):
+            registros.insert(ancla, g)
+
     elegidas = elegir_posiciones(
         [Nota(midi=r["midi"], offset=r["offset"], duracion=r["duracion"])
          for r in registros],
@@ -493,7 +518,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     marcas = [
         Marca(pagina=r["pagina"], x=r["x"], y=r["y"],
               texto=(p.etiqueta if p is not None else "?"),
-              sistema=r["sistema"])
+              sistema=r["sistema"], estimada=bool(r.get("estimada")))
         for r, p in zip(registros, elegidas)
         if r["x"] is not None
     ]
@@ -509,7 +534,8 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         modo_x=modo,
         acierto=acierto,
         tramos={i: (s_i["x_ini"], s_i["x_fin"]) for i, s_i in enumerate(sistemas)},
-        sistemas_pagina=_por_pagina(sistemas),
+        sistemas_pagina=por_pag,
+        rellenadas=sum(1 for r in registros if r.get("estimada")),
     )
 
 
@@ -727,6 +753,344 @@ def detectar_pentagramas(pdf: Path, indice: int, alto_pt: float,
     return candidatos[0] if candidatos else []
 
 
+# --- notas que el OMR se comió ----------------------------------------------
+
+# Audiveris no siempre reconoce todas las notas de una pasaje rápida: si se
+# salta una, esa nota no existe en el MusicXML y su número no aparece. Aquí
+# la buscamos en la imagen —una cabeza sin número, dentro de un pentagrama
+# medido, entre dos notas que sí existen— y leemos su altura de la posición
+# vertical sobre el pentagrama (en clave de fa la línea inferior es Sol2).
+# La x es la medida en el PDF. El número lo decide el solver con el resto de
+# la secuencia y sale estampado en gris.
+
+
+def _midi_fa(y_pt: float, sup: float, inf: float) -> Optional[int]:
+    """Altura MIDI de una cabeza sobre un pentagrama en clave de fa."""
+    espacio = (inf - sup) / 4.0
+    if espacio <= 0:
+        return None
+    k = round((inf - y_pt) / (espacio / 2.0))   # medio espacio = un grado
+    idx = 2 * 7 + 4 + k                          # Sol2 = octava 2, grado G
+    octava, paso = divmod(idx, 7)
+    midi = (octava + 1) * 12 + PASOS["CDEFGAB"[paso]]
+    return midi if 20 <= midi <= 100 else None
+
+
+def _cabezas(a, sup: float, inf: float, izq: float, der: float,
+             escala_x: float, escala_y: float) -> List[Tuple[float, float]]:
+    """
+    [(x, y)] en puntos de las cabezas de la banda de un pentagrama.
+
+    Se quitan primero las cinco líneas (tinta continua de lado a lado) y
+    después, dentro de cada tramo de tinta, se separan los bloques verticales:
+    una cabeza es un bloque grueso, y las plicas y las banderas quedan en
+    bloques aparte porque entre medias hay una columna de dos píxeles. De los
+    bloques con forma de cabeza se queda el más cercano al centro del
+    pentagrama, que es la nota; los demás son adornos.
+    """
+    import numpy as np
+
+    espacio_px = ((inf - sup) / 4.0) * escala_y
+    if espacio_px <= 0:
+        return []
+    y0 = max(int(sup * escala_y - 0.75 * espacio_px), 0)
+    y1 = min(int(inf * escala_y + 0.75 * espacio_px) + 1, a.shape[0])
+    x0 = max(int(izq * escala_x), 0)
+    x1 = min(int(der * escala_x) + 1, a.shape[1])
+    if y1 <= y0 or x1 <= x0:
+        return []
+
+    tinta = a[y0:y1, x0:x1] < UMBRAL_TINTA
+    if not tinta.any():
+        return []
+    cuerpo = tinta & ~(tinta.sum(axis=1) > 0.55 * tinta.shape[1])[:, None]
+
+    cols = np.flatnonzero(cuerpo.any(axis=0))
+    if not cols.size:
+        return []
+    trozos, inicio, prev = [], cols[0], cols[0]
+    for c in cols[1:]:
+        if c - prev > 5:
+            trozos.append([inicio, prev])
+            inicio = c
+        prev = c
+    trozos.append([inicio, prev])
+
+    # Una cabeza con su siniestra o su armónico pegados es un solo trazo.
+    unidos = []
+    for t in trozos:
+        if unidos and t[0] - unidos[-1][1] < 0.5 * espacio_px:
+            unidos[-1][1] = t[1]
+        else:
+            unidos.append(t)
+
+    centro = (sup + inf) / 2.0 * escala_y - y0
+    salidas = []
+    for ini, fin in unidos:
+        ancho = fin - ini + 1
+        if not 0.45 * espacio_px <= ancho <= 2.2 * espacio_px:
+            continue
+        trozo = cuerpo[:, ini:fin + 1]
+        pes = trozo.sum(axis=1)
+        if not pes.size or pes.max() == 0:
+            continue
+
+        # Bloques verticales: la plica (dos píxeles) separa la cabeza de lo
+        # que tenga encima (bandera, ligadura, otro bloque).
+        corte = max(2.0, 0.3 * pes.max())
+        bloques, actual = [], None
+        for y in range(len(pes)):
+            if pes[y] > corte:
+                actual = [y, y] if actual is None else [actual[0], y]
+            elif actual is not None:
+                bloques.append(actual)
+                actual = None
+        if actual is not None:
+            bloques.append(actual)
+
+        # La línea del pentagrama se come la fila donde se apoya la cabeza:
+        # los trozos resultantes son la misma nota. Un acorde ocupa bloques
+        # enteros en espacios distintos, así que solo se une si hay un
+        # esquirla (la mitad partida por la línea).
+        unidas = []
+        for b in bloques:
+            if (unidas and b[0] - unidas[-1][1] - 1 <= 2
+                    and min(unidas[-1][1] - unidas[-1][0] + 1,
+                            b[1] - b[0] + 1) < 0.5 * espacio_px):
+                unidas[-1][1] = b[1]
+            else:
+                unidas.append(b)
+        bloques = unidas
+
+        buenos = []
+        for ya, yb in bloques:
+            alto = yb - ya + 1
+            if not 0.4 * espacio_px <= alto <= 1.5 * espacio_px:
+                continue
+            sub = trozo[ya:yb + 1]
+            colsn = int(sub.any(axis=0).sum())
+            if not 0.45 * espacio_px <= colsn <= 2.2 * espacio_px:
+                continue
+            filas_sub = sub.sum(axis=1)
+            # Silencios de blanco y de negra: rectángulos cuyos renglones
+            # miden todos lo mismo. La cabeza es un óvalo y va estrechando.
+            if (filas_sub >= 0.85 * filas_sub.max()).mean() >= 0.75:
+                continue
+            ys, xs = np.nonzero(sub)
+            if not xs.size:
+                continue
+            buenos.append((ya, yb, xs.mean(), ys.mean(), colsn))
+
+        if not buenos:
+            continue
+        # El bloque con forma de cabeza más cerca del centro del pentagrama
+        # es la nota; los otros son banderas o ligas de la misma plica.
+        ya, yb, lx, ly, colsn = min(
+            buenos, key=lambda b: abs((b[0] + b[1]) / 2 - centro))
+        salidas.append(((x0 + ini + lx) / escala_x,
+                        (y0 + ya + ly) / escala_y, colsn / escala_x))
+    return salidas
+
+
+def _texto_pagina(lector, pagina: int, alto_pt: float) -> List[Tuple[float, float, str]]:
+    """[(x, y, run)] en puntos (y de arriba abajo) del texto de una página."""
+    salida: List[Tuple[float, float, str]] = []
+    try:
+        def _vis(texto, cm, tm, fd, fs):
+            if not texto or not texto.strip():
+                return
+            x = cm[0] * tm[4] + cm[2] * tm[5] + cm[4]
+            y = cm[1] * tm[4] + cm[3] * tm[5] + cm[5]
+            salida.append((x, alto_pt - y, texto.strip()))
+
+        lector.pages[pagina].extract_text(visitor_text=_vis)
+    except Exception:  # noqa: BLE001
+        return []
+    return salida
+
+
+def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
+               sistemas: List[dict],
+               sistemas_pagina: Dict[int, List[int]],
+               ancho_pagina: float, modo: str) -> List[Tuple[int, dict]]:
+    """
+    Notas que están en el PDF pero no en el MusicXML.
+
+    Devuelve [(índice donde insertar, registro)] ya ordenado para que quien
+    llame pueda insertarlos con `list.insert` sin renumerar nada. Si la
+    detección suena demasiado a falsos positivos, no devuelve nada.
+    """
+    try:
+        import numpy as np
+        import pypdfium2 as pdfium
+        from pypdf import PdfReader
+    except ImportError:
+        return []
+    if not registros or not sistemas:
+        return []
+
+    lector = PdfReader(str(pdf))
+    doc = pdfium.PdfDocument(str(pdf))
+    salida: List[Tuple[int, dict]] = []
+    try:
+        for pagina in range(min(len(lector.pages), len(doc))):
+            en_pagina = sistemas_pagina.get(pagina)
+            if not en_pagina:
+                continue
+            pag = lector.pages[pagina]
+            caja = pag.mediabox
+            ancho_pt, alto_pt = float(caja.width), float(caja.height)
+            rotado = int(pag.get("/Rotate") or 0) % 180 == 90
+            if rotado:
+                ancho_pt, alto_pt = alto_pt, ancho_pt
+
+            # Texto visible: sirve para vetar silencios, cifras y demás blobs
+            # que se parecen a una cabeza. Con rotación no traducimos bien las
+            # coordenadas y dejamos el comportamiento de antes.
+            glifos = [] if rotado else _texto_pagina(lector, pagina, alto_pt)
+
+            pent = detectar_pentagramas(pdf, pagina, alto_pt,
+                                        esperados=len(en_pagina))
+            if len(pent) != len(en_pagina):
+                continue    # sin medición fiable no inventamos nada
+            try:
+                img = doc[pagina].render(scale=150 / 72).to_pil().convert("L")
+            except Exception:  # noqa: BLE001
+                continue
+            a = np.asarray(img)
+            escala_x = a.shape[1] / ancho_pt
+            escala_y = a.shape[0] / alto_pt
+            fx = ancho_pt / ancho_pagina
+
+            for k, s in enumerate(en_pagina):
+                sup, inf, izq, der = pent[k]
+                espacio = (inf - sup) / 4.0
+                if espacio <= 0:
+                    continue
+                tramo = (sistemas[s]["x_ini"], sistemas[s]["x_fin"])
+                factor = 0.0
+                if tramo[1] > tramo[0] and der > izq:
+                    f = (der - izq) / (tramo[1] - tramo[0])
+                    if 0.8 <= f / fx <= 1.25:
+                        factor = f
+
+                def a_pt(xd: float, tramo=tramo, factor=factor,
+                         izq=izq, fx=fx) -> float:
+                    return izq + (xd - tramo[0]) * factor if factor else xd * fx
+
+                xs = sorted(
+                    (a_pt(registros[i]["x"]), i)
+                    for i, r in enumerate(registros)
+                    if r["pagina"] == pagina and r["sistema"] == s
+                    and r.get("x") is not None)
+                if len(xs) < 2:
+                    continue
+
+                # Dónde caen los silencios de este sistema, en puntos: un
+                # descanso no lleva número y no debe parecer nota olvidada.
+                reposo = []
+                for d in descansos:
+                    if d["pagina"] != pagina or d["sistema"] != s:
+                        continue
+                    origen = (d["x_medida"] if modo == "medida"
+                              else d["x_sistema"] if modo == "sistema"
+                              else 0.0)
+                    reposo.append(a_pt(origen + d["dx"] + MEDIA_CABEZA))
+
+                cabezas = _cabezas(a, sup, inf, izq, der, escala_x, escala_y)
+
+                # Caracteres que suelen ir pegados a las notas de verdad (las
+                # del OMR). Cualquier blob que en el PDF cargue SOLO texto de
+                # otro tipo (silencios, cifras, alteraciones) es un falso
+                # positivo: ninguna cabeza de verdad va sin su signo típico.
+                cefalo = Counter()
+                for cx, cy, _an in cabezas:
+                    if any(abs(cx - nx) < 0.8 * espacio for nx, _ in xs):
+                        for gx, gy, run in glifos:
+                            if abs(gx - cx) <= 5 and abs(gy - cy) <= 5:
+                                cefalo[run] += 1
+                cefalo = {r for r, n in cefalo.items() if n >= 3}
+
+                for n, (cx, cy, ancho) in enumerate(cabezas):
+                    # En columna (clave, puntos de repetición...) no es nota:
+                    # dos cabezas de verdad nunca quedan tan pegadas en x.
+                    if any(abs(cx - ox) < 0.6 * espacio
+                           and abs(cy - oy) > 0.8 * espacio
+                           for m, (ox, oy, _) in enumerate(cabezas)
+                           if m != n):
+                        continue
+                    if any(abs(cx - nx) < 0.8 * espacio for nx, _ in xs):
+                        continue    # ya lleva número
+                    if any(abs(cx - rx) < 0.8 * espacio for rx in reposo):
+                        continue    # hay un silencio ahí: no es una nota
+                    # Si hay texto en la imagen, el blob tiene que llevar al
+                    # lado un glifo de cabeza; si solo hay silencio/cifra es
+                    # tinta de esas y no una nota olvidada.
+                    vecinos = [run for gx, gy, run in glifos
+                               if abs(gx - cx) <= 4 and abs(gy - cy) <= 4]
+                    if vecinos and cefalo and not (set(vecinos) & cefalo):
+                        continue
+                    b = next((t for t in range(len(xs) - 1)
+                              if xs[t][0] < cx < xs[t + 1][0]), None)
+                    if b is not None:
+                        (xa, ia), (xb, ib) = xs[b], xs[b + 1]
+                        frac = min(max((cx - xa) / (xb - xa), 0.0), 1.0)
+                        ra, rb = registros[ia], registros[ib]
+                        offset = (ra["offset"]
+                                  + (rb["offset"] - ra["offset"]) * frac)
+                        dur = ra["duracion"] + (
+                            (rb["duracion"] - ra["duracion"]) * frac)
+                        ancla = ib
+                    elif cx > xs[-1][0]:
+                        # Tras el último número: nota final del sistema que
+                        # el OMR no leyó (zonas sin número en los bordes).
+                        if cx >= der - 0.35 * espacio:
+                            continue    # barra final o puntos de repetición
+                        ancla = xs[-1][1] + 1
+                        ra = rb = registros[xs[-1][1]]
+                        offset = ra["offset"] + ra["duracion"]
+                        dur = ra["duracion"]
+                    elif (ancho >= 0.75 * espacio and cx <= xs[0][0]
+                          and cx > izq + 1.2 * espacio):
+                        # Antes del primer número; ancho de cabeza para no
+                        # confundir con la bemol de la armadura (más estrecha).
+                        ancla = xs[0][1]
+                        ra = rb = registros[ancla]
+                        offset = max(ra["offset"] - ra["duracion"], 0.0)
+                        dur = ra["duracion"]
+                    else:
+                        continue    # sin vecinos que la enmarquen: mejor no
+                    midi = _midi_fa(cy, sup, inf)
+                    if midi is None:
+                        continue
+                    x = tramo[0] + (cx - izq) / factor if factor else cx / fx
+                    salida.append((ancla, {
+                        "midi": midi,
+                        "offset": offset,
+                        "duracion": dur,
+                        "pagina": pagina,
+                        "dx": x - rb["x_medida"] - MEDIA_CABEZA,
+                        "x_medida": rb["x_medida"],
+                        "x_sistema": rb["x_sistema"],
+                        "sistema": s,
+                        "y": sistemas[s]["y_numeros"],
+                        "x": x,
+                        "estimada": True,
+                    }))
+    finally:
+        doc.close()
+
+    # Demasiadas "notas" para ser verdad: no confiamos en la detección y no
+    # tocamos nada (las lecturas normales siguen intactas).
+    if not salida or len(salida) > max(3, int(0.3 * len(registros))):
+        return []
+    por_ancla: Dict[int, List[dict]] = {}
+    for ancla, g in salida:
+        por_ancla.setdefault(ancla, []).append(g)
+    return [(ancla, g) for ancla in sorted(por_ancla, reverse=True)
+            for g in sorted(por_ancla[ancla], key=lambda g: -g["x"])]
+
+
 # --- estampado sobre el PDF -------------------------------------------------
 
 # Cuerpo de letra de los números, en espacios de pentagrama. En pasajes
@@ -854,7 +1218,6 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
 
             buffer = BytesIO()
             lienzo = canvas.Canvas(buffer, pagesize=(ancho_caja, alto_caja))
-            lienzo.setFillGray(0.0)
             for m, x_vista in colocadas:
                 # En PDF la Y crece hacia arriba; nosotros medimos hacia abajo.
                 y_vista = alto_pt - alturas[m.sistema]
@@ -871,6 +1234,9 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                 lienzo.translate(x_hoja, y_hoja)
                 if giro:
                     lienzo.rotate(giro)
+                # Lo rellenado por imagen sale en gris: es una buena
+                # estimación, pero no está escrito en el MusicXML.
+                lienzo.setFillGray(0.62 if m.estimada else 0.0)
                 lienzo.setFont("Helvetica",
                                cuerpos.get(m.sistema, espacio * tamano_relativo))
                 lienzo.drawCentredString(0, 0, m.texto)
