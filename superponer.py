@@ -999,17 +999,19 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
 
                 cabezas = _cabezas(a, sup, inf, izq, der, escala_x, escala_y)
 
-                # Caracteres que suelen ir pegados a las notas de verdad (las
-                # del OMR). Cualquier blob que en el PDF cargue SOLO texto de
-                # otro tipo (silencios, cifras, alteraciones) es un falso
-                # positivo: ninguna cabeza de verdad va sin su signo típico.
+                # Caracteres que salen en las posiciones de nota del OMR (las
+                # de xs): sus cabezas y adornos. Cualquier blob que en el PDF
+                # cargue SOLO texto de otro tipo (silencios, cifras,
+                # alteraciones) es un falso positivo: una nota de verdad lleva
+                # al lado uno de estos signos. Se cuenta por posición de nota,
+                # no por detección: _cabezas devuelve pocas y dejaría el
+                # alfabeto vacío justo donde más falta hace.
                 cefalo = Counter()
-                for cx, cy, _an in cabezas:
-                    if any(abs(cx - nx) < 0.8 * espacio for nx, _ in xs):
-                        for gx, gy, run in glifos:
-                            if abs(gx - cx) <= 5 and abs(gy - cy) <= 5:
-                                cefalo[run] += 1
-                cefalo = {r for r, n in cefalo.items() if n >= 3}
+                for nx, _ in xs:
+                    for gx, gy, run in glifos:
+                        if abs(gx - nx) <= 4 and sup - espacio <= gy <= inf + espacio:
+                            cefalo[run] += 1
+                cefalo = {r for r, n in cefalo.items() if n >= 2}
 
                 for n, (cx, cy, ancho) in enumerate(cabezas):
                     # En columna (clave, puntos de repetición...) no es nota:

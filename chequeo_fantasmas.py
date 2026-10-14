@@ -44,11 +44,12 @@ def main() -> None:
     original_cabezas = S._cabezas
     S.detectar_pentagramas = (
         lambda pdf, indice, alto_pt, esperados=None, dpi=150: [(376.0, 392.0, 0.0, ANCHO)])
-    # Cabezas: dos de verdad (coinciden con xs=100/200/300), el fantasma malo
-    # (250, tinta de cifra) y el bueno (400, tinta de cabeza 'X').
+    # Cabezas: SOLO los dos blobs dudosos (el malo en 250, tinta de cifra; el
+    # bueno en 400, tinta de cabeza). Las notas de verdad (100/200/300) no
+    # aparecen aquí a propósito: así se comprueba que el alfabeto de cabeza se
+    # saca de las posiciones del OMR y no de lo que devuelva la detección.
     S._cabezas = lambda a, sup, inf, izq, der, ex, ey: [
-        (100.0, 380.0, 6.0), (200.0, 380.0, 6.0), (250.0, 380.0, 6.0),
-        (300.0, 380.0, 6.0), (400.0, 380.0, 6.0)]
+        (250.0, 380.0, 6.0), (400.0, 380.0, 6.0)]
 
     registros = [
         {"x": 100, "x_medida": 100, "x_sistema": 100, "duracion": 1.0,
