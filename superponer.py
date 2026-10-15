@@ -929,6 +929,76 @@ def _texto_pagina(lector, pagina: int, alto_pt: float) -> List[Tuple[float, floa
     return salida
 
 
+def _cabezas_texto(pdf: Path, indice: int, giro: int, ancho_pt: float,
+                   alto_pt: float, espacio: float
+                   ) -> Optional[List[Tuple[float, float]]]:
+    """
+    Centros de las cabezas de nota de la página, en coordenadas de la vista
+    (x a la derecha, y hacia abajo). None si no se reconoce la fuente.
+
+    Una cabeza es un glifo tan alto como un espacio de pentagrama y más o
+    menos cuadrado. No miramos el nombre ni el carácter: así vale para
+    cualquier fuente (Opus, Anastasia, Sibelius) y cualquier orientación, y no
+    se cuelan silencios, claves ni cifras (altos y estrechos todos ellos).
+    Nos quedamos con la fuente que más glifos así acumula, que es la de música.
+    """
+    try:
+        import ctypes
+
+        import pypdfium2 as pdfium
+        from pypdfium2 import raw as _raw
+    except ImportError:
+        return None
+    if espacio <= 0:
+        return None
+
+    if giro in (90, 270):
+        ancho_u, alto_u = alto_pt, ancho_pt
+    else:
+        ancho_u, alto_u = ancho_pt, alto_pt
+
+    try:
+        tp = pdfium.PdfDocument(str(pdf))[indice].get_textpage()
+    except Exception:  # noqa: BLE001
+        return None
+
+    por_fuente: Dict[str, List[Tuple[float, float]]] = {}
+    try:
+        for i in range(tp.count_chars()):
+            b = tp.get_charbox(i)
+            w, h = b[2] - b[0], b[3] - b[1]
+            if h <= 0 or h < 0.72 * espacio or h > 1.35 * espacio:
+                continue
+            if not 0.6 <= w / h <= 1.9:
+                continue
+            buf = ctypes.create_string_buffer(128)
+            flg = ctypes.c_int()
+            _raw.FPDFText_GetFontInfo(tp.raw, i, buf, 128, ctypes.byref(flg))
+            fuente = buf.value.decode("latin1", "replace")
+            por_fuente.setdefault(fuente, []).append(
+                ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0)
+            )
+    finally:
+        tp.close()
+
+    grupos = [v for v in por_fuente.values() if len(v) >= 12]
+    if not grupos:
+        return None    # no reconocemos la fuente: no filtramos nada
+    puntos = max(grupos, key=len)
+
+    salida: List[Tuple[float, float]] = []
+    for cxu, cyu in puntos:
+        if giro == 90:
+            salida.append((cyu, cxu))
+        elif giro == 270:
+            salida.append((ancho_u - cyu, alto_u - cxu))
+        elif giro == 180:
+            salida.append((ancho_u - cxu, cyu))
+        else:
+            salida.append((cxu, alto_u - cyu))
+    return salida
+
+
 def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                sistemas: List[dict],
                sistemas_pagina: Dict[int, List[int]],
@@ -1282,6 +1352,18 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
             else:
                 espacio = plano.espacio_decimos * fy
 
+            # Cabezas de nota dibujadas. Antes de poner un número comprobamos
+            # que haya una cabeza en su sitio: así no aparecen cifras sobre
+            # silencios, claves ni cifras de compás, pase lo que pase con las
+            # coordenadas que traiga el OMR.
+            cabeceas = None
+            if pentagramas:
+                cabeceas = _cabezas_texto(pdf_original, indice, giro,
+                                          ancho_pt, alto_pt, espacio)
+            banda_pent = {s: pentagramas[k]
+                          for k, s in enumerate(en_pagina)
+                          if k < len(pentagramas)}
+
             # Ya en puntos de la página vista, para medir lo juntas que van.
             colocadas = []
             for m in marcas:
@@ -1291,7 +1373,28 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                     x = izq + (m.x - origen) * factor
                 else:
                     x = m.x * fx
+                if cabeceas is not None:
+                    banda = banda_pent.get(m.sistema)
+                    if banda and not any(
+                            abs(hx - x) <= max(3.0, 0.9 * espacio)
+                            and banda[0] - 2.0 * espacio
+                            <= hy
+                            <= banda[1] + 4.0 * espacio
+                            for hx, hy in cabeceas):
+                        continue    # no hay nota aquí: no estampamos
                 colocadas.append((m, x))
+
+            # Dos cifras en el mismo punto (una leída y otra estimada) o tres
+            # glifos que se creían notas distintas en una cabeza: nos quedamos
+            # con una, dando prioridad a la leída del MusicXML.
+            colocadas.sort(key=lambda mx: (mx[0].sistema, mx[0].estimada, mx[1]))
+            limpias = []
+            for m, x in colocadas:
+                if (limpias and limpias[-1][0].sistema == m.sistema
+                        and abs(limpias[-1][1] - x) < 0.55 * espacio):
+                    continue
+                limpias.append((m, x))
+            colocadas = limpias
 
             cuerpos = {}
             for s in sistemas:
