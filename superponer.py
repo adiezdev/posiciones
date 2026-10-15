@@ -982,6 +982,32 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
             escala_y = a.shape[0] / alto_pt
             fx = ancho_pt / ancho_pagina
 
+            # Alfabeto de cabeza de toda la página: glifos de fuente musical
+            # con alto ~un espacio (œ, ˙, w...). Una cabeza que en su sistema
+            # no cae junto a ninguna nota del OMR se reconocía mal; aquí se
+            # reconoce igual. Fuente + alto evitan colar letras, silencios
+            # (altos y estrechos) y alteraciones.
+            forma: set = set()
+            try:
+                import ctypes
+                from pypdfium2 import raw as _raw
+                tp_txt = doc[pagina].get_textpage()
+                for i in range(tp_txt.count_chars()):
+                    ch = tp_txt.get_text_range(i, 1)
+                    if ch in forma or not ch.strip():
+                        continue
+                    b = tp_txt.get_charbox(i)
+                    buf = ctypes.create_string_buffer(128)
+                    flg = ctypes.c_int()
+                    _raw.FPDFText_GetFontInfo(tp_txt.raw, i, buf, 128,
+                                              ctypes.byref(flg))
+                    if "Opus" in buf.value.decode("latin1", "replace") \
+                            and 4.3 <= b[3] - b[1] <= 6.3:
+                        forma.add(ch)
+                tp_txt.close()
+            except Exception:  # noqa: BLE001
+                forma = set()
+
             for k, s in enumerate(en_pagina):
                 sup, inf, izq, der = pent[k]
                 espacio = (inf - sup) / 4.0
@@ -1032,6 +1058,7 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                         if abs(gx - nx) <= 4 and sup - espacio <= gy <= inf + espacio:
                             cefalo[run] += 1
                 cefalo = {r for r, n in cefalo.items() if n >= 2}
+                cefalo |= forma
 
                 # Cabezas que el OMR no leyó pero sí están dibujadas: glifos de
                 # cabeza que no caen sobre ninguna nota del MusicXML. En pasajes
@@ -1044,7 +1071,11 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                     for gx, gy, run in glifos:
                         if run not in cefalo:
                             continue
-                        if not sup - 1.5 * espacio <= gy <= inf + 1.5 * espacio:
+                        # Una cabeza reconocida por forma puede ir varias líneas
+                        # por encima o debajo del pentagrama (notas con líneas
+                        # adicionales); las de alfabeto local van más ajustadas.
+                        margen = 3.5 * espacio if run in forma else 1.5 * espacio
+                        if not sup - margen <= gy <= inf + margen:
                             continue
                         if any(abs(gx - nx) <= tol for nx, _ in xs):
                             continue    # ya lleva número
