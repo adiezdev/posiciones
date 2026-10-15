@@ -1013,7 +1013,29 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                             cefalo[run] += 1
                 cefalo = {r for r, n in cefalo.items() if n >= 2}
 
+                # Cabezas que el OMR no leyó pero sí están dibujadas: glifos de
+                # cabeza que no caen sobre ninguna nota del MusicXML. En pasajes
+                # densos (notas con plica unida) la detección por imagen se
+                # pierde, pero el glifo de texto está siempre. Solo se usa si la
+                # partitura trae texto (alfabeto no vacío).
+                n_px = len(cabezas)
+                if glifos and cefalo:
+                    tol = max(3.5, 1.3 * espacio)
+                    for gx, gy, run in glifos:
+                        if run not in cefalo:
+                            continue
+                        if not sup - 1.5 * espacio <= gy <= inf + 1.5 * espacio:
+                            continue
+                        if any(abs(gx - nx) <= tol for nx, _ in xs):
+                            continue    # ya lleva número
+                        if any(abs(gx - px) <= 0.9 * espacio
+                               and abs(gy - py) <= 1.0 * espacio
+                               for px, py, _ in cabezas):
+                            continue    # ya la tiene la imagen
+                        cabezas.append((gx, gy, 1.2 * espacio))
+
                 for n, (cx, cy, ancho) in enumerate(cabezas):
+                    de_glifo = n >= n_px
                     # En columna (clave, puntos de repetición...) no es nota:
                     # dos cabezas de verdad nunca quedan tan pegadas en x.
                     if any(abs(cx - ox) < 0.6 * espacio
@@ -1023,15 +1045,17 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                         continue
                     if any(abs(cx - nx) < 0.8 * espacio for nx, _ in xs):
                         continue    # ya lleva número
-                    if any(abs(cx - rx) < 0.8 * espacio for rx in reposo):
+                    if not de_glifo and any(abs(cx - rx) < 0.8 * espacio
+                                            for rx in reposo):
                         continue    # hay un silencio ahí: no es una nota
                     # Si hay texto en la imagen, el blob tiene que llevar al
                     # lado un glifo de cabeza; si solo hay silencio/cifra es
                     # tinta de esas y no una nota olvidada.
-                    vecinos = [run for gx, gy, run in glifos
-                               if abs(gx - cx) <= 4 and abs(gy - cy) <= 4]
-                    if vecinos and cefalo and not (set(vecinos) & cefalo):
-                        continue
+                    if not de_glifo:
+                        vecinos = [run for gx, gy, run in glifos
+                                   if abs(gx - cx) <= 4 and abs(gy - cy) <= 4]
+                        if vecinos and cefalo and not (set(vecinos) & cefalo):
+                            continue
                     b = next((t for t in range(len(xs) - 1)
                               if xs[t][0] < cx < xs[t + 1][0]), None)
                     if b is not None:
