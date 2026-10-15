@@ -293,6 +293,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     ancho_anterior = 0.0
     divisiones = 1.0
     offset = 0.0
+    fifths = 0                # armadura vigente; cambia si el compás lo pide
     primera = True
 
     registros: List[dict] = []
@@ -362,6 +363,9 @@ def preparar(ruta_musicxml, transpositor: bool = False,
                 div = hijo.findtext("divisions")
                 if div:
                     divisiones = _f(div, divisiones) or 1.0
+                kk = hijo.find("key/fifths")
+                if kk is not None and (kk.text or "").strip():
+                    fifths = int(_f(kk.text, fifths))
 
             elif hijo.tag == "backup":
                 cerrar_grupo()
@@ -411,6 +415,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
                     "x_medida": x_medida,
                     "x_sistema": x_sistema,
                     "sistema": max(sistema, 0),
+                    "fifths": fifths,
                 })
 
                 if not en_acorde and not adorno:
@@ -764,15 +769,30 @@ def detectar_pentagramas(pdf: Path, indice: int, alto_pt: float,
 # la secuencia y sale estampado en gris.
 
 
-def _midi_fa(y_pt: float, sup: float, inf: float) -> Optional[int]:
-    """Altura MIDI de una cabeza sobre un pentagrama en clave de fa."""
+def _alteracion_armadura(letra: str, fifths: int) -> int:
+    """Semitono que la armadura aplica a una letra (0, +1 o -1)."""
+    if fifths < 0 and letra in "BEADGCF"[:min(-fifths, 7)]:
+        return -1
+    if fifths > 0 and letra in "FCGDAEB"[:min(fifths, 7)]:
+        return 1
+    return 0
+
+
+def _midi_fa(y_pt: float, sup: float, inf: float,
+             fifths: int = 0) -> Optional[int]:
+    """Altura MIDI de una cabeza sobre un pentagrama en clave de fa.
+
+    La armadura (fifths) altera la nota: sin aplicarla, un Si bemol suena
+    como Si natural y sale una posición equivocada.
+    """
     espacio = (inf - sup) / 4.0
     if espacio <= 0:
         return None
     k = round((inf - y_pt) / (espacio / 2.0))   # medio espacio = un grado
     idx = 2 * 7 + 4 + k                          # Sol2 = octava 2, grado G
     octava, paso = divmod(idx, 7)
-    midi = (octava + 1) * 12 + PASOS["CDEFGAB"[paso]]
+    letra = "CDEFGAB"[paso]
+    midi = (octava + 1) * 12 + PASOS[letra] + _alteracion_armadura(letra, fifths)
     return midi if 20 <= midi <= 100 else None
 
 
@@ -1086,7 +1106,7 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                         dur = ra["duracion"]
                     else:
                         continue    # sin vecinos que la enmarquen: mejor no
-                    midi = _midi_fa(cy, sup, inf)
+                    midi = _midi_fa(cy, sup, inf, rb.get("fifths", 0))
                     if midi is None:
                         continue
                     x = tramo[0] + (cx - izq) / factor if factor else cx / fx

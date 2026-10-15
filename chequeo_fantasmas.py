@@ -37,6 +37,13 @@ def construir_pdf():
 
 
 def main() -> None:
+    # _midi_fa: clave de fa, línea inferior Sol2; la armadura altera la altura
+    # (sin esto un Si bemol sale como Si natural y da posición equivocada).
+    assert S._midi_fa(392.0, 376.0, 392.0) == 43, "línea inferior debe ser Sol2"
+    assert S._midi_fa(388.0, 376.0, 392.0) == 47, "2ª línea debe ser Si2 natural"
+    assert S._midi_fa(388.0, 376.0, 392.0, -1) == 46, "1 bemol: Si2 -> Si bemol"
+    assert S._midi_fa(380.0, 376.0, 392.0, 1) == 54, "1 sostenido: Fa3 -> Fa#"
+
     construir_pdf()
 
     # Fijamos pentagrama y cabezas (sup, inf, izq, der = 376..392).
