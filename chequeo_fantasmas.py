@@ -56,7 +56,7 @@ def main() -> None:
     # aparecen aquí a propósito: así se comprueba que el alfabeto de cabeza se
     # saca de las posiciones del OMR y no de lo que devuelva la detección.
     S._cabezas = lambda a, sup, inf, izq, der, ex, ey: [
-        (250.0, 380.0, 6.0), (400.0, 380.0, 6.0)]
+        (250.0, 380.0, 6.0), (400.0, 380.0, 6.0), (400.0, 368.0, 6.0)]
 
     registros = [
         {"x": 100, "x_medida": 100, "x_sistema": 100, "duracion": 1.0,

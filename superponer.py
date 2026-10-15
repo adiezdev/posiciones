@@ -1038,7 +1038,7 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                 # densos (notas con plica unida) la detección por imagen se
                 # pierde, pero el glifo de texto está siempre. Solo se usa si la
                 # partitura trae texto (alfabeto no vacío).
-                n_px = len(cabezas)
+                glifos_cab = []
                 if glifos and cefalo:
                     tol = max(3.5, 1.3 * espacio)
                     for gx, gy, run in glifos:
@@ -1048,20 +1048,26 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                             continue
                         if any(abs(gx - nx) <= tol for nx, _ in xs):
                             continue    # ya lleva número
-                        if any(abs(gx - px) <= 0.9 * espacio
-                               and abs(gy - py) <= 1.0 * espacio
-                               for px, py, _ in cabezas):
-                            continue    # ya la tiene la imagen
-                        cabezas.append((gx, gy, 1.2 * espacio))
+                        glifos_cab.append((gx, gy, 1.2 * espacio))
+                # El glifo es prueba directa de una nota: si un blob de imagen
+                # cae justo encima, sobra (la plica o la barra lo desplazan y
+                # el blob acababa vetado, perdiendo la nota). Manda el glifo.
+                cabezas = [
+                    c for c in cabezas
+                    if not any(abs(c[0] - gx) <= 0.9 * espacio
+                               and abs(c[1] - gy) <= 1.0 * espacio
+                               for gx, gy, _ in glifos_cab)]
+                n_px = len(cabezas)
+                cabezas = cabezas + glifos_cab
 
                 for n, (cx, cy, ancho) in enumerate(cabezas):
                     de_glifo = n >= n_px
                     # En columna (clave, puntos de repetición...) no es nota:
                     # dos cabezas de verdad nunca quedan tan pegadas en x.
-                    if any(abs(cx - ox) < 0.6 * espacio
-                           and abs(cy - oy) > 0.8 * espacio
-                           for m, (ox, oy, _) in enumerate(cabezas)
-                           if m != n):
+                    if not de_glifo and any(abs(cx - ox) < 0.6 * espacio
+                                            and abs(cy - oy) > 0.8 * espacio
+                                            for m, (ox, oy, _) in enumerate(cabezas)
+                                            if m != n):
                         continue
                     if any(abs(cx - nx) < 0.8 * espacio for nx, _ in xs):
                         continue    # ya lleva número
@@ -1090,7 +1096,7 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                     elif cx > xs[-1][0]:
                         # Tras el último número: nota final del sistema que
                         # el OMR no leyó (zonas sin número en los bordes).
-                        if cx >= der - 0.35 * espacio:
+                        if not de_glifo and cx >= der - 0.35 * espacio:
                             continue    # barra final o puntos de repetición
                         ancla = xs[-1][1] + 1
                         ra = rb = registros[xs[-1][1]]
