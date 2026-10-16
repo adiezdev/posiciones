@@ -39,6 +39,7 @@ from fastapi.staticfiles import StaticFiles
 from music21 import converter
 
 import estilo
+import omr
 import partitura
 import superponer
 from anotar import anotar as anotar_score
@@ -101,6 +102,15 @@ def _guardar(tid: str, **cambios) -> dict:
 
 # --- procesos externos ------------------------------------------------------
 
+def _libro_omr(export: Path):
+    """El .omr que Audiveris deja junto al export, si se entiende."""
+    for ruta in sorted(export.rglob("*.omr")):
+        libro = omr.leer(ruta)
+        if libro is not None:
+            return libro
+    return None
+
+
 def _compases(ruta: Path) -> int:
     """Cuántos compases trae un export, para elegir el más completo."""
     try:
@@ -135,7 +145,10 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
         _guardar(tid, estado="reconociendo")
         export = d / "export"
         export.mkdir(exist_ok=True)
-        _correr([AUDIVERIS, "-batch", "-export", "-output", str(export), str(pdf_in)],
+        # `-save` deja también el .omr, que trae la geometría que Audiveris
+        # ha medido de verdad. Cuesta poco y evita tener que adivinarla.
+        _correr([AUDIVERIS, "-batch", "-export", "-save",
+                 "-output", str(export), str(pdf_in)],
                 TIMEOUT_OMR, "El reconocimiento de la partitura")
 
         encontrados = sorted(export.rglob("*.mxl")) or sorted(export.rglob("*.xml"))
@@ -158,9 +171,10 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
         # --- Vía A: estampar sobre el PDF original, sin redibujar nada ---
         if mantener_original:
             _guardar(tid, estado="anotando", modo="superpuesto")
+            libro = _libro_omr(export)
             plano = superponer.preparar(partitura.cargar(crudo),
                                         transpositor, cercanas, peso,
-                                        pdf=pdf_in)
+                                        pdf=pdf_in, libro_omr=libro)
             if plano is not None:
                 _guardar(tid, estado="generando")
                 pdf_out = d / "resultado.pdf"
@@ -171,6 +185,8 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
                 _guardar(
                     tid, estado="listo", notas=puestas,
                     modo_x=plano.modo_x,
+                    geometria=("audiveris" if plano.pentagramas_omr
+                               else "medida en el PDF"),
                     pentagramas_medidos=medido,
                     rellenadas=plano.rellenadas,
                     encaje=round(plano.acierto * 100),

@@ -112,7 +112,9 @@ class Caso:
 
     def __init__(self, paginas: int = 2, sistemas: int = 4, compases: int = 4,
                  rotate: int = 0, margen_cropbox: float = 0.0,
-                 sin_dx: float = 0.0, ritmo: bool = True, semilla: int = 7):
+                 sin_dx: float = 0.0, ritmo: bool = True,
+                 borde_negro: bool = False, dpi_omr: int = 300,
+                 semilla: int = 7):
         self.paginas = paginas
         self.sistemas = sistemas
         self.compases = compases
@@ -120,6 +122,8 @@ class Caso:
         self.margen_cropbox = margen_cropbox
         self.sin_dx = sin_dx
         self.ritmo = ritmo
+        self.borde_negro = borde_negro
+        self.dpi_omr = dpi_omr
         self.azar = random.Random(semilla)
 
         self.ancho_pagina = A4_ANCHO_MM / MM_POR_DECIMO
@@ -278,6 +282,22 @@ class Caso:
             c.setStrokeColorRGB(0, 0, 0)
             c.setFillColorRGB(0, 0, 0)
 
+            if self.borde_negro:
+                # Franja negra como la que deja un escáner con la tapa
+                # abierta. Dispara el máximo de tinta de la página y los
+                # umbrales relativos dejan de encontrar las líneas.
+                ancho_fr = 0.06 * self.vista_ancho_pt
+                esquinas = [self.a_hoja(0, 0),
+                            self.a_hoja(ancho_fr, 0),
+                            self.a_hoja(ancho_fr, self.vista_alto_pt),
+                            self.a_hoja(0, self.vista_alto_pt)]
+                q = c.beginPath()
+                q.moveTo(*esquinas[0])
+                for e in esquinas[1:]:
+                    q.lineTo(*e)
+                q.close()
+                c.drawPath(q, stroke=0, fill=1)
+
             for s in range(self.sistemas):
                 y_top = self.y_sistema(s)
                 izq, der = MARGEN_IZQ, self.ancho_pagina - MARGEN_DER
@@ -432,6 +452,68 @@ class Caso:
         ET.ElementTree(raiz).write(str(destino), encoding="UTF-8",
                                    xml_declaration=True)
 
+    def escribir_omr(self, destino: Path) -> None:
+        """
+        Un `.omr` con la pinta del que guarda Audiveris con `-save`.
+
+        No sustituye a probarlo contra un archivo de verdad —el esquema sale
+        de leer el código de Audiveris, no de una especificación— pero sí
+        ejercita todo lo demás: el ZIP, la lectura tolerante, la validación,
+        el paso de píxeles a puntos y la integración con el estampado.
+        """
+        import zipfile
+
+        px = self.dpi_omr / 72.0          # píxeles por punto
+        interlinea = (DECIMOS_PENTAGRAMA / 4.0) * PT_POR_DECIMO * px
+
+        por_pagina: Dict[int, List[dict]] = {}
+        for n in self.notas:
+            por_pagina.setdefault(n["pagina"], []).append(n)
+
+        with zipfile.ZipFile(destino, "w", zipfile.ZIP_DEFLATED) as z:
+            for pagina in range(self.paginas):
+                raiz = ET.Element("sheet", number=str(pagina + 1))
+                esc = ET.SubElement(raiz, "scale")
+                ET.SubElement(esc, "interline").text = "%.1f" % interlinea
+
+                pag = ET.SubElement(raiz, "page")
+                sistema = ET.SubElement(pag, "system")
+                suyos = [p for p in self.pentagramas if p["pagina"] == pagina]
+                for k, pent in enumerate(suyos):
+                    st = ET.SubElement(
+                        sistema, "staff",
+                        id=str(pagina * self.sistemas + k + 1),
+                        left="%d" % round(pent["izq_pt"] * px),
+                        right="%d" % round(pent["der_pt"] * px))
+                    lineas = ET.SubElement(st, "lines")
+                    for j in range(5):
+                        y = (pent["sup_pt"]
+                             + j * (pent["inf_pt"] - pent["sup_pt"]) / 4.0)
+                        li = ET.SubElement(lineas, "line")
+                        pts = ET.SubElement(li, "points")
+                        for x_pt in (pent["izq_pt"], pent["der_pt"]):
+                            ET.SubElement(pts, "point",
+                                          x="%.1f" % (x_pt * px),
+                                          y="%.1f" % (y * px))
+
+                sig = ET.SubElement(raiz, "sig")
+                for n in por_pagina.get(pagina, []):
+                    ancho = ANCHO_CABEZA * PT_POR_DECIMO * px
+                    alto = ALTO_CABEZA * PT_POR_DECIMO * px
+                    h = ET.SubElement(
+                        sig, "head",
+                        staff=str(n["sistema"] + 1),
+                        shape="NOTEHEAD_BLACK" if n["duracion"] < 2
+                              else "NOTEHEAD_VOID")
+                    ET.SubElement(
+                        h, "bounds",
+                        x="%d" % round(n["x_pt"] * px - ancho / 2),
+                        y="%d" % round(n["y_pt"] * px - alto / 2),
+                        w="%d" % round(ancho), h="%d" % round(alto))
+
+                z.writestr("sheet#%d.xml" % (pagina + 1),
+                           ET.tostring(raiz, encoding="unicode"))
+
     def escribir_verdad(self, destino: Path) -> None:
         destino.write_text(json.dumps({
             "paginas": self.paginas,
@@ -451,10 +533,12 @@ class Caso:
             "pdf": carpeta / "partitura.pdf",
             "musicxml": carpeta / "export.musicxml",
             "verdad": carpeta / "verdad.json",
+            "omr": carpeta / "libro.omr",
         }
         self.escribir_pdf(rutas["pdf"])
         self.escribir_musicxml(rutas["musicxml"])
         self.escribir_verdad(rutas["verdad"])
+        self.escribir_omr(rutas["omr"])
         return rutas
 
 
@@ -474,12 +558,14 @@ def main() -> None:
                     help="fracción de notas sin default-x, como en pasajes densos")
     ap.add_argument("--sin-ritmo", action="store_true",
                     help="todo negras y repartido por igual (prueba fácil)")
+    ap.add_argument("--borde-negro", action="store_true",
+                    help="franja negra de escáner que rompe la detección por umbral")
     args = ap.parse_args()
 
     caso = Caso(paginas=args.paginas, sistemas=args.sistemas,
                 compases=args.compases, rotate=args.rotate,
                 margen_cropbox=args.cropbox, sin_dx=args.sin_dx,
-                ritmo=not args.sin_ritmo)
+                ritmo=not args.sin_ritmo, borde_negro=args.borde_negro)
     rutas = caso.generar(args.carpeta)
     print("%d notas, %d pentagramas, %d páginas"
           % (len(caso.notas), len(caso.pentagramas), caso.paginas))

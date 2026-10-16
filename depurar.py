@@ -53,7 +53,8 @@ COLOR_ESTADO = {
 
 
 def analizar(pdf: Path, musicxml: Path, transpositor: bool = False,
-             preferir_cercanas: bool = False, peso_movimiento=None) -> dict:
+             preferir_cercanas: bool = False, peso_movimiento=None,
+             omr_ruta: Optional[Path] = None) -> dict:
     """
     Corre el pipeline de estampado recogiendo todo lo que mide por el camino.
 
@@ -61,10 +62,15 @@ def analizar(pdf: Path, musicxml: Path, transpositor: bool = False,
     cuentas. Si `preparar` se rinde, viene el motivo exacto en vez de un
     None mudo.
     """
+    libro = None
+    if omr_ruta is not None and omr_ruta.exists():
+        import omr as _omr
+        libro = _omr.leer(omr_ruta)
+
     diag_plano: dict = {}
     plano = superponer.preparar(partitura.cargar(musicxml), transpositor,
                                 preferir_cercanas, peso_movimiento,
-                                pdf=pdf, diag=diag_plano)
+                                pdf=pdf, diag=diag_plano, libro_omr=libro)
     if plano is None:
         return {"ok": False, "motivo": diag_plano.get("motivo", "desconocido"),
                 "plano": None, "paginas": [], "resumen": {}}
@@ -86,8 +92,12 @@ def analizar(pdf: Path, musicxml: Path, transpositor: bool = False,
                                                      f["alto_pt"])
             f["pentagramas_libres"] = [list(x) for x in libres]
 
+    resumen = _resumir(plano, paginas, estampadas, medido)
+    resumen["omr"] = libro is not None
+    resumen["paginas_con_omr"] = sum(
+        1 for f in paginas if f.get("origen_pentagramas") == "omr")
     return {"ok": True, "motivo": None, "plano": plano, "paginas": paginas,
-            "resumen": _resumir(plano, paginas, estampadas, medido)}
+            "resumen": resumen}
 
 
 def _resumir(plano, paginas: List[dict], estampadas: int,
@@ -345,10 +355,24 @@ def main() -> None:
                     help="volcar las medidas en JSON")
     ap.add_argument("--verdad", type=Path,
                     help="verdad.json de pruebas/sintetico.py")
+    ap.add_argument("--omr", type=Path,
+                    help="el .omr que deja Audiveris con -save")
     ap.add_argument("--transpositor", action="store_true")
     args = ap.parse_args()
 
-    analisis = analizar(args.pdf, args.musicxml, args.transpositor)
+    if args.omr:
+        import omr as _omr
+        libro = _omr.leer(args.omr)
+        if libro is None:
+            print("El .omr no se ha podido leer o no supera la validación.")
+            print("No pasa nada: se mide la imagen como siempre. Pero si tu")
+            print("Audiveris guarda otro esquema, aquí es donde se vería.")
+        else:
+            print(_omr.describir(libro))
+            print()
+
+    analisis = analizar(args.pdf, args.musicxml, args.transpositor,
+                        omr_ruta=args.omr)
     if not analisis["ok"]:
         print("preparar() se ha rendido: %s" % analisis["motivo"])
         print("El trabajo habría caído a la vía de redibujar con MuseScore.")
@@ -372,6 +396,9 @@ def main() -> None:
           % (r["modo_x"], 100 * r["encaje"]))
     print("páginas                %d con números, %d con pentagramas medidos"
           % (r["paginas_con_marcas"], r["paginas_medidas"]))
+    if r.get("omr"):
+        print("geometría              %d páginas desde el .omr de Audiveris"
+              % r.get("paginas_con_omr", 0))
 
     comparacion = None
     if args.verdad:

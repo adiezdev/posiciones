@@ -53,10 +53,16 @@ BATERIA = [
     ("sin-coordenadas-50", {"sin_dx": 0.50}),
     ("sin-coordenadas-80", {"sin_dx": 0.80}),
     ("ritmo-plano", {"ritmo": False, "sin_dx": 0.50}),
+    # El borde negro de escáner revienta la detección de pentagramas por
+    # umbral de tinta. Con el .omr la página se salva; sin él, cae a modo
+    # degradado. Los dos casos miden justo esa diferencia.
+    ("borde-negro", {"borde_negro": True}),
+    ("borde-negro-con-omr", {"borde_negro": True, "_omr": True}),
+    ("base-con-omr", {"_omr": True}),
 ]
 
 CABECERA = ("caso", "notas", "estamp", "cob%", "desc", "err_med",
-            "err_p95", "ok%", "pent", "modo", "enc%", "s")
+            "err_p95", "ok%", "pent", "geom", "enc%", "s")
 
 
 def generar_bateria(destino: Path) -> List[Path]:
@@ -66,8 +72,14 @@ def generar_bateria(destino: Path) -> List[Path]:
 
     carpetas = []
     for nombre, kwargs in BATERIA:
+        kwargs = dict(kwargs)
+        usar_omr = kwargs.pop("_omr", False)
         carpeta = destino / nombre
         Caso(**kwargs).generar(carpeta)
+        if not usar_omr:
+            # La batería genera siempre el .omr; en los casos que no lo usan
+            # se quita, para medir cuánto aporta tenerlo.
+            (carpeta / "libro.omr").unlink(missing_ok=True)
         carpetas.append(carpeta)
     return carpetas
 
@@ -128,8 +140,10 @@ def medir(carpeta: Path, con_omr: bool = False,
     if xml is None:
         return {"caso": nombre, "ok": False, "motivo": "sin_export_musicxml"}
 
+    omr_ruta = carpeta / "libro.omr"
     try:
-        analisis = depurar.analizar(pdf, xml)
+        analisis = depurar.analizar(
+            pdf, xml, omr_ruta=omr_ruta if omr_ruta.exists() else None)
     except Exception as e:  # noqa: BLE001
         return {"caso": nombre, "ok": False,
                 "motivo": "excepcion:%s: %s" % (type(e).__name__, e)}
@@ -175,7 +189,7 @@ def _celdas(fila: dict) -> tuple:
         ("%.2f" % c["error_p95_pt"]) if c.get("error_p95_pt") is not None else "-",
         ("%.0f" % (100 * c["tasa_acierto"])) if c else "-",
         "%d/%d" % (fila["paginas_medidas"], fila["paginas_con_marcas"]),
-        fila["modo_x"],
+        "omr" if fila.get("paginas_con_omr") else "imagen",
         "%.0f" % (100 * fila["encaje"]),
         str(fila["segundos"]),
     )

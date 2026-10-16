@@ -75,6 +75,10 @@ class Plano:
     sistemas_pagina: Optional[Dict[int, List[int]]] = None
     rellenadas: int = 0          # notas que solo existen en el PDF, no en el OMR
     sin_x: int = 0               # notas descartadas por no tener x reconstruible
+    # Pentagramas que Audiveris ya había medido, en puntos y por página.
+    # Cuando están, evitan el peor acantilado que tiene esto: que la
+    # detección por imagen no acierte el número de sistemas de una página.
+    pentagramas_omr: Optional[Dict[int, List[Tuple[float, float, float, float]]]] = None
 
 
 # --- lectura del MusicXML ---------------------------------------------------
@@ -381,7 +385,8 @@ def preparar(ruta_musicxml, transpositor: bool = False,
              preferir_cercanas: bool = False,
              peso_movimiento=None,
              pdf: Optional[Path] = None,
-             diag: Optional[dict] = None) -> Optional[Plano]:
+             diag: Optional[dict] = None,
+             libro_omr=None) -> Optional[Plano]:
     """
     Recorre el MusicXML reconstruyendo la posición de cada nota en la página.
     Devuelve None si no hay coordenadas utilizables.
@@ -700,6 +705,8 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     # metemos en la secuencia para que el solver decida su posición como a
     # cualquier otra. Se estampan en gris, para distinguir lo leído de lo
     # estimado.
+    pent_omr = _pentagramas_del_omr(libro_omr, mm_por_decimo, diag)
+
     por_pag = _por_pagina(sistemas)
     if pdf is not None:
         for ancla, g in _fantasmas(pdf, registros, descansos, sistemas,
@@ -747,7 +754,28 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         sistemas_pagina=por_pag,
         rellenadas=sum(1 for r in registros if r.get("estimada")),
         sin_x=sum(1 for r in registros if r["x"] is None),
+        pentagramas_omr=pent_omr,
     )
+
+
+def _pentagramas_del_omr(libro, mm_por_decimo: float, diag: Optional[dict]
+                         ) -> Optional[Dict[int, List[Tuple[float, float, float, float]]]]:
+    """Pasa a puntos los pentagramas que trae el .omr, si lo hay."""
+    if libro is None:
+        return None
+    try:
+        import omr
+    except ImportError:
+        return None
+    salida: Dict[int, List[Tuple[float, float, float, float]]] = {}
+    for indice, hoja in enumerate(libro.hojas):
+        factor = omr.escala_a_puntos(hoja, mm_por_decimo)
+        if factor is None:
+            continue
+        salida[indice] = omr.pentagramas_en_puntos(hoja, factor)
+    if diag is not None:
+        diag["pentagramas_omr"] = {k: len(v) for k, v in salida.items()}
+    return salida or None
 
 
 def _por_pagina(sistemas: List[dict]) -> Dict[int, List[int]]:
@@ -1495,6 +1523,31 @@ def _cuerpo_por_sistema(marcas: List[Marca], espacio: float) -> float:
     return min(max(cuerpo, CUERPO_MIN * espacio), CUERPO_MAX * espacio)
 
 
+def _pentagramas_fiables(pentagramas, esperados: int, ancho_pt: float,
+                         alto_pt: float):
+    """
+    Acepta los pentagramas del .omr solo si cuadran con esta página.
+
+    El formato del .omr no está documentado y puede cambiar de versión. Si
+    lo leído no encaja —otro número de sistemas, coordenadas fuera del
+    papel, pentagramas que se cruzan— se descarta entero y se mide la
+    imagen como siempre. Más vale el camino lento que uno rápido y falso.
+    """
+    if not pentagramas or len(pentagramas) != esperados:
+        return None
+    margen = 0.02 * max(ancho_pt, alto_pt)
+    anterior = None
+    for sup, inf, izq, der in pentagramas:
+        if not (-margen <= sup < inf <= alto_pt + margen):
+            return None
+        if not (-margen <= izq < der <= ancho_pt + margen):
+            return None
+        if anterior is not None and sup < anterior:
+            return None    # se solapan: no son sistemas consecutivos
+        anterior = inf
+    return list(pentagramas)
+
+
 def a_hoja(x_vista: float, y_arriba: float, giro: int,
            ancho_caja: float, alto_caja: float, alto_pt: float,
            orig_x: float = 0.0, orig_y: float = 0.0) -> Tuple[float, float]:
@@ -1602,8 +1655,17 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
             # contra los que llevan notas: si uno va entero de silencios, el
             # pentagrama existe igual y no debe descolocar a los siguientes.
             en_pagina = (plano.sistemas_pagina or {}).get(indice, sistemas)
-            pentagramas = detectar_pentagramas(pdf_original, indice, alto_pt,
-                                               esperados=len(en_pagina))
+            # Lo que Audiveris ya midió manda sobre lo que podamos sacar de
+            # la imagen: es la misma información sin el riesgo de no acertar
+            # el número de sistemas y caer a modo degradado.
+            pentagramas = _pentagramas_fiables(
+                (plano.pentagramas_omr or {}).get(indice),
+                len(en_pagina), ancho_pt, alto_pt)
+            origen_pent = "omr" if pentagramas else "imagen"
+            if not pentagramas:
+                pentagramas = detectar_pentagramas(pdf_original, indice,
+                                                   alto_pt,
+                                                   esperados=len(en_pagina))
 
             if ficha is not None:
                 ficha.update({
@@ -1613,6 +1675,7 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                     "fx": fx, "fy": fy,
                     "sistemas_esperados": len(en_pagina),
                     "pentagramas": [list(x) for x in pentagramas],
+                    "origen_pentagramas": origen_pent,
                 })
 
             if len(pentagramas) == len(en_pagina):

@@ -19,6 +19,8 @@
   "paginas_medidas": 2,
   "medido": true,
   "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
@@ -51,6 +53,8 @@
   "paginas_medidas": 1,
   "medido": true,
   "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
   "comparacion": {
    "notas_verdad": 99,
    "sin_numero": 0,
@@ -83,6 +87,8 @@
   "paginas_medidas": 2,
   "medido": true,
   "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
   "comparacion": {
    "notas_verdad": 295,
    "sin_numero": 0,
@@ -115,6 +121,8 @@
   "paginas_medidas": 2,
   "medido": true,
   "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
@@ -147,6 +155,8 @@
   "paginas_medidas": 2,
   "medido": true,
   "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
@@ -179,6 +189,8 @@
   "paginas_medidas": 2,
   "medido": true,
   "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
@@ -211,6 +223,8 @@
   "paginas_medidas": 2,
   "medido": true,
   "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
@@ -243,6 +257,8 @@
   "paginas_medidas": 2,
   "medido": true,
   "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
@@ -275,6 +291,8 @@
   "paginas_medidas": 2,
   "medido": true,
   "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
@@ -307,6 +325,8 @@
   "paginas_medidas": 2,
   "medido": true,
   "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
@@ -339,6 +359,8 @@
   "paginas_medidas": 2,
   "medido": true,
   "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
@@ -371,6 +393,8 @@
   "paginas_medidas": 2,
   "medido": true,
   "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
   "comparacion": {
    "notas_verdad": 128,
    "sin_numero": 0,
@@ -381,6 +405,108 @@
    "aciertos": 128,
    "tasa_acierto": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.2
+ },
+ {
+  "caso": "borde-negro",
+  "ok": true,
+  "motivo": null,
+  "notas_omr": 131,
+  "marcas": 131,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 131,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 131
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 2,
+  "paginas_con_marcas": 2,
+  "paginas_medidas": 2,
+  "medido": true,
+  "cobertura": 1.0,
+  "omr": false,
+  "paginas_con_omr": 0,
+  "comparacion": {
+   "notas_verdad": 131,
+   "sin_numero": 0,
+   "error_mediano_pt": 8.143,
+   "error_p95_pt": 32.598,
+   "error_max_pt": 38.741,
+   "espacio_pt": 4.961,
+   "aciertos": 13,
+   "tasa_acierto": 0.0992
+  },
+  "segundos": 0.2
+ },
+ {
+  "caso": "borde-negro-con-omr",
+  "ok": true,
+  "motivo": null,
+  "notas_omr": 131,
+  "marcas": 131,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 131,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 131
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 2,
+  "paginas_con_marcas": 2,
+  "paginas_medidas": 2,
+  "medido": true,
+  "cobertura": 1.0,
+  "omr": true,
+  "paginas_con_omr": 2,
+  "comparacion": {
+   "notas_verdad": 131,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.634,
+   "error_p95_pt": 0.996,
+   "error_max_pt": 1.039,
+   "espacio_pt": 4.961,
+   "aciertos": 131,
+   "tasa_acierto": 1.0
+  },
+  "segundos": 0.2
+ },
+ {
+  "caso": "base-con-omr",
+  "ok": true,
+  "motivo": null,
+  "notas_omr": 131,
+  "marcas": 131,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 131,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 131
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 2,
+  "paginas_con_marcas": 2,
+  "paginas_medidas": 2,
+  "medido": true,
+  "cobertura": 1.0,
+  "omr": true,
+  "paginas_con_omr": 2,
+  "comparacion": {
+   "notas_verdad": 131,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.634,
+   "error_p95_pt": 0.996,
+   "error_max_pt": 1.039,
+   "espacio_pt": 4.961,
+   "aciertos": 131,
+   "tasa_acierto": 1.0
+  },
+  "segundos": 0.2
  }
 ]
