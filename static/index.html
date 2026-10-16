@@ -273,6 +273,15 @@
     font-size: 0.9rem;
   }
 
+  .viejo {
+    margin: 14px 0 0;
+    padding: 9px 12px;
+    border-left: 3px solid var(--aviso, #b4700d);
+    background: rgba(180, 112, 13, .07);
+    color: var(--tinta-media);
+    font-size: 0.85rem;
+    line-height: 1.45;
+  }
   .version {
     display: block;
     margin-top: 8px;
@@ -413,6 +422,13 @@ const ETAPAS = {
 // Estados en los que todavía se puede cancelar.
 const EN_MARCHA = ["en_cola", "preparando", "reconociendo", "anotando",
                    "generando"];
+
+// Version que corre ahora mismo, para avisar de los resultados viejos.
+// Una partitura procesada hace dias se genero con el codigo de hace dias:
+// si desde entonces se ha arreglado algo, el PDF que tienes guardado NO
+// lo lleva, y el diagnostico —que se calcula al descargarlo— si. Los dos
+// discrepan y no hay forma de saber por que si nadie lo dice.
+let versionActual = null;
 
 const zona = document.getElementById("zona");
 const fichero = document.getElementById("fichero");
@@ -573,8 +589,15 @@ function pintar(t) {
 
     cuerpo = `
       <p style="margin:14px 0 0;color:var(--tinta-media);font-size:.9rem">${escapar(resumen + dudosas + entrada + papel + coord + geom + nota)}</p>
+      ${t.version && versionActual && t.version !== versionActual ? `
+      <p class="viejo">Este resultado se generó con una versión anterior de
+        la herramienta. Si ves números fuera de sitio, vuelve a generarlo:
+        el PDF guardado no lleva los arreglos posteriores, pero el
+        diagnóstico sí, y por eso pueden no coincidir.</p>` : ""}
       <div class="acciones">
         <a class="boton" href="/api/trabajos/${t.id}/pdf">Descargar el PDF</a>
+        ${t.version && versionActual && t.version !== versionActual
+          ? `<button class="boton" data-reintentar="${t.id}">Volver a generar</button>` : ""}
         ${t.revisable ? `<a class="boton" href="/revisar?id=${t.id}">Repasar los números</a>` : ""}
         ${t.revisable ? `<a class="boton secundario" href="/api/trabajos/${t.id}/diagnostico" title="PDF con lo que ha visto la máquina: pentagramas, cabezas y de dónde sale cada número">Diagnóstico</a>` : ""}
         <a class="boton secundario" href="/api/trabajos/${t.id}/musicxml">Descargar MusicXML</a>
@@ -637,8 +660,10 @@ VigilarVersion.iniciar({
     (fichero.files && fichero.files.length)
     || titulo.value.trim() || etiqueta.value.trim()),
   alLeer: (v) => {
+    versionActual = v;
     const el = document.getElementById("version");
     if (el) el.textContent = "versión " + String(v).slice(0, 12);
+    refrescar();
   },
 });
 </script>

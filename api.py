@@ -290,7 +290,8 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
                 score = converter.parse(str(crudo))
                 avisos = validar(score, transpositor, semitonos)
                 _guardar(
-                    tid, estado="listo", notas=puestas, dudosas=dudosas,
+                    tid, estado="listo", version=VERSION,
+                    notas=puestas, dudosas=dudosas,
                     lectura=lectura, semitonos=semitonos,
                     modo_x=plano.modo_x,
                     geometria=("audiveris" if plano.pentagramas_omr
@@ -369,6 +370,7 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
         _guardar(
             tid,
             estado="listo",
+            version=VERSION,
             notas=notas,
             fuera_rango=fuera,
             avisos=[{"gravedad": a.gravedad, "parte": a.parte,
@@ -783,8 +785,16 @@ def diagnostico(tid: str):
                      "se puede rehacer el diagnóstico.")
         xml = max(encontrados, key=_compases)
 
+    # Con los mismos ajustes que uso el trabajo. Si el diagnostico se
+    # calcula con otros, ensena una partitura que no es la que te has
+    # descargado, y entonces no diagnostica: despista.
+    reglas = CRITERIOS.get(datos.get("criterio", "equilibrado"),
+                           CRITERIOS["equilibrado"])
     analisis = depurar.analizar(base, xml, bool(datos.get("transpositor")),
-                                lectura=datos.get("lectura", "auto"))
+                                preferir_cercanas=reglas["preferir_cercanas"],
+                                peso_movimiento=reglas["peso"],
+                                lectura=datos.get("lectura", "auto"),
+                                rescatar=bool(datos.get("rescatar", False)))
     tmp = Path(tempfile.mkdtemp(prefix="diag-"))
     nombre = datos.get("titulo") or Path(datos.get("nombre", "partitura")).stem
     salida = tmp / f"{_sanear(nombre)} (diagnostico).pdf"
@@ -793,6 +803,10 @@ def diagnostico(tid: str):
             409, "El estampado no llegó a hacerse (%s), así que no hay nada "
                  "que diagnosticar." % analisis["motivo"])
     depurar.pintar(base, salida, analisis)
+    if datos.get("version") and datos["version"] != VERSION:
+        print("[diagnostico] %s se genero con la version %s y ahora corre la "
+              "%s: el PDF descargado puede no coincidir"
+              % (tid, datos["version"], VERSION))
     return FileResponse(salida, filename=salida.name,
                         media_type="application/pdf",
                         background=_borrar_luego(tmp))
