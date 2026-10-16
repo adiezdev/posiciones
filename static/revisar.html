@@ -292,7 +292,9 @@ function empezarArrastre(e, pagina, n, el) {
   }
 
   function soltar() {
-    el.releasePointerCapture?.(e.pointerId);
+    // Tras el pointerup la captura ya esta suelta y volver a soltarla
+    // lanza InvalidPointerId en algunos navegadores.
+    try { el.releasePointerCapture?.(e.pointerId); } catch (_) {}
     el.removeEventListener("pointermove", mover);
     el.removeEventListener("pointerup", soltar);
     el.removeEventListener("pointercancel", cancelar);
@@ -330,7 +332,7 @@ function refrescar(pagina, n) {
 // --- editar -----------------------------------------------------------------
 
 function cerrarFicha() {
-  if (ficha) { ficha.remove(); ficha = null; }
+  if (ficha) { ficha._cerrar?.(); ficha.remove(); ficha = null; }
   document.querySelectorAll(".num.elegida")
           .forEach((e) => e.classList.remove("elegida"));
 }
@@ -339,6 +341,10 @@ function abrirFicha(pagina, n, el) {
   cerrarFicha();
   el.classList.add("elegida");
 
+  // Si la ficha se cierra por otra via (arrastrar, Escape, clic fuera), el
+  // blur diferido del campo llega despues y no debe aplicar nada: marcaria
+  // como corregido a mano un numero que nadie ha tocado.
+  let vigente = true;
   ficha = document.createElement("div");
   ficha.className = "ficha";
   ficha.style.left = el.style.left;
@@ -376,11 +382,13 @@ function abrirFicha(pagina, n, el) {
     + " Arrástralo para moverlo, o Alt + flechas para afinar.";
 
   ficha.append(fila, sugerencias, nota);
+  ficha._cerrar = () => { vigente = false; };
   el.parentElement.appendChild(ficha);
   campo.focus();
   campo.select();
 
   function aplicar() {
+    if (!vigente) return;
     const texto = campo.value.trim();
     if (!texto) { quitar(); return; }
     n.texto = texto;
@@ -392,6 +400,7 @@ function abrirFicha(pagina, n, el) {
   }
 
   function quitar() {
+    if (!vigente) return;
     const i = pagina.numeros.indexOf(n);
     if (i >= 0) pagina.numeros.splice(i, 1);
     if (n._el) n._el.remove();
