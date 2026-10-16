@@ -59,10 +59,17 @@ BATERIA = [
     ("borde-negro", {"borde_negro": True}),
     ("borde-negro-con-omr", {"borde_negro": True, "_omr": True}),
     ("base-con-omr", {"_omr": True}),
+    # Clave de do en 4ª, que en trombón aparece a mitad de obra.
+    ("clave-tenor", {"clave": "tenor"}),
+    # Particella de banda: "Trombón en Sib", clave de sol. Suena una novena
+    # mayor más grave de lo escrito y el MusicXML no lo dice en ninguna
+    # parte. Si no se deduce de la clave, TODOS los números salen mal sin
+    # que nada avise.
+    ("sib-clave-sol", {"clave": "sol", "transposicion": "sib"}),
 ]
 
 CABECERA = ("caso", "notas", "estamp", "cob%", "desc", "err_med",
-            "err_p95", "ok%", "pent", "geom", "enc%", "s")
+            "err_p95", "ok%", "num%", "pent", "geom", "s")
 
 
 def generar_bateria(destino: Path) -> List[Path]:
@@ -188,9 +195,10 @@ def _celdas(fila: dict) -> tuple:
         ("%.2f" % c["error_mediano_pt"]) if c.get("error_mediano_pt") is not None else "-",
         ("%.2f" % c["error_p95_pt"]) if c.get("error_p95_pt") is not None else "-",
         ("%.0f" % (100 * c["tasa_acierto"])) if c else "-",
+        ("%.0f" % (100 * c["tasa_numero"]))
+        if c.get("tasa_numero") is not None else "-",
         "%d/%d" % (fila["paginas_medidas"], fila["paginas_con_marcas"]),
         "omr" if fila.get("paginas_con_omr") else "imagen",
-        "%.0f" % (100 * fila["encaje"]),
         str(fila["segundos"]),
     )
 
@@ -233,6 +241,12 @@ def comparar_con_base(filas: List[dict], base: List[dict],
                 quejas.append("%s: notas bien situadas %.3f -> %.3f"
                               % (f["caso"], ca["tasa_acierto"],
                                  cf["tasa_acierto"]))
+            if (ca.get("tasa_numero") is not None
+                    and cf.get("tasa_numero") is not None
+                    and cf["tasa_numero"] < ca["tasa_numero"] - tolerancia):
+                quejas.append("%s: números posibles %.3f -> %.3f"
+                              % (f["caso"], ca["tasa_numero"],
+                                 cf["tasa_numero"]))
             if cf["error_p95_pt"] and ca["error_p95_pt"]:
                 if cf["error_p95_pt"] > ca["error_p95_pt"] * 1.25 + 0.1:
                     quejas.append("%s: error p95 %.2f -> %.2f pt"

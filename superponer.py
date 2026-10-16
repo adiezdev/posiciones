@@ -44,6 +44,26 @@ HUECO_POR_DEFECTO = 60.0
 MEDIA_CABEZA = 6.5
 
 PASOS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+LETRAS = "CDEFGAB"
+
+# Nota de referencia de cada clave y en qué línea se apoya, contando la de
+# abajo como la 1. El índice es diatónico: octava * 7 + grado, con Do = 0.
+#   sol en 2ª -> Sol4 ; fa en 4ª -> Fa3 ; do en 4ª (tenor) -> Do4
+REFERENCIA_CLAVE = {"G": (4 * 7 + 4, 2), "F": (3 * 7 + 3, 4), "C": (4 * 7 + 0, 3)}
+CLAVE_POR_DEFECTO = ("F", 4, 0)     # signo, línea, cambio de octava
+
+# Cómo se lee la particella. Audiveris no puede saberlo: lee la altura
+# escrita y punto. Pero una parte de "Trombón 1º en Sib" en clave de sol
+# suena una novena mayor más grave de lo que se ve, y sin esto TODOS los
+# números salen mal sin que nada avise, porque las alturas escritas caen
+# dentro del registro y el validador no protesta.
+LECTURAS = {
+    "auto": None,          # deducir de la clave
+    "do-fa": 0,            # lo normal: clave de fa, suena lo escrito
+    "do-sol": 0,           # clave de sol, en Do
+    "sib-sol": -14,        # clave de sol, en Sib: novena mayor abajo
+    "octava-baja": -12,    # escrita una octava por encima de lo que suena
+}
 
 
 @dataclass
@@ -88,6 +108,62 @@ def _f(texto: Optional[str], defecto: float = 0.0) -> float:
         return float(texto)
     except (TypeError, ValueError):
         return defecto
+
+
+def _clave(elemento: Optional[ET.Element]) -> Optional[Tuple[str, int, int]]:
+    """(signo, línea, cambio de octava) de un <clef>."""
+    if elemento is None:
+        return None
+    signo = (elemento.findtext("sign") or "").strip().upper()
+    if signo not in REFERENCIA_CLAVE:
+        return None
+    _, linea_defecto = REFERENCIA_CLAVE[signo]
+    linea = int(_f(elemento.findtext("line"), linea_defecto))
+    octava = int(_f(elemento.findtext("clef-octave-change"), 0))
+    return signo, linea, octava
+
+
+def _transposicion_declarada(elemento: Optional[ET.Element]) -> Optional[int]:
+    """Semitonos del <transpose> de un <attributes>, si lo trae."""
+    if elemento is None:
+        return None
+    t = elemento.find("transpose")
+    if t is None:
+        return None
+    return int(_f(t.findtext("chromatic"), 0)
+               + 12 * _f(t.findtext("octave-change"), 0))
+
+
+def _lectura_automatica(raiz: ET.Element) -> int:
+    """
+    Cuántos semitonos hay que bajar lo escrito para saber lo que suena.
+
+    Sin `<transpose>` en el archivo —y Audiveris nunca lo pone, porque no
+    tiene forma de saberlo— lo único que queda es la clave. Una particella
+    de trombón en clave de sol es, en la práctica, una parte en Sib: así se
+    escriben las de banda. En clave de fa o de do se lee lo que suena.
+    """
+    for clef in raiz.iter("clef"):
+        c = _clave(clef)
+        if c and c[0] == "G":
+            return LECTURAS["sib-sol"]
+    return 0
+
+
+def _midi_de_grado(idx: int, fifths: int = 0) -> Optional[int]:
+    """MIDI de un grado diatónico absoluto, aplicándole la armadura."""
+    octava, paso = divmod(idx, 7)
+    letra = LETRAS[paso]
+    midi = ((octava + 1) * 12 + PASOS[letra]
+            + _alteracion_armadura(letra, fifths))
+    return midi if 0 <= midi <= 127 else None
+
+
+def _grado_linea_inferior(clave: Tuple[str, int, int]) -> int:
+    """Grado diatónico que cae sobre la línea de abajo del pentagrama."""
+    signo, linea, octava = clave
+    referencia, _ = REFERENCIA_CLAVE.get(signo, REFERENCIA_CLAVE["F"])
+    return referencia - 2 * (linea - 1) + 7 * octava
 
 
 def _midi(nota: ET.Element) -> Optional[int]:
@@ -386,7 +462,8 @@ def preparar(ruta_musicxml, transpositor: bool = False,
              peso_movimiento=None,
              pdf: Optional[Path] = None,
              diag: Optional[dict] = None,
-             libro_omr=None) -> Optional[Plano]:
+             libro_omr=None,
+             lectura: str = "auto") -> Optional[Plano]:
     """
     Recorre el MusicXML reconstruyendo la posición de cada nota en la página.
     Devuelve None si no hay coordenadas utilizables.
@@ -455,7 +532,20 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     divisiones = 1.0
     offset = 0.0
     fifths = 0                # armadura vigente; cambia si el compás lo pide
+    clave = CLAVE_POR_DEFECTO
     primera = True
+
+    # Lo que suena = lo escrito + esto. El <transpose> del archivo manda si
+    # está; si no, lo elige quien llama, y "auto" lo deduce de la clave.
+    semitonos = LECTURAS.get(lectura)
+    if semitonos is None:
+        semitonos = _lectura_automatica(raiz)
+    declarada = _transposicion_declarada(raiz.find(".//attributes"))
+    if declarada:
+        semitonos = declarada
+    if diag is not None:
+        diag["lectura"] = lectura
+        diag["semitonos"] = semitonos
 
     registros: List[dict] = []
     descansos: List[dict] = []
@@ -536,6 +626,9 @@ def preparar(ruta_musicxml, transpositor: bool = False,
                 kk = hijo.find("key/fifths")
                 if kk is not None and (kk.text or "").strip():
                     fifths = int(_f(kk.text, fifths))
+                nueva_clave = _clave(hijo.find("clef"))
+                if nueva_clave is not None:
+                    clave = nueva_clave
 
             elif hijo.tag == "backup":
                 cerrar_grupo()
@@ -588,7 +681,10 @@ def preparar(ruta_musicxml, transpositor: bool = False,
                         + list(nots.findall("tied")))
 
                 grupo.append({
-                    "midi": midi,
+                    # Lo que suena, que es lo que determina la vara. Lo
+                    # escrito solo sirve para dibujar.
+                    "midi": midi + semitonos,
+                    "midi_escrito": midi,
                     "ligada": ligada,
                     "medida": indice_medida,
                     "offset_medida": offset_medida,
@@ -601,6 +697,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
                     "x_sistema": x_sistema,
                     "sistema": max(sistema, 0),
                     "fifths": fifths,
+                    "clave": clave,
                 })
 
                 if not en_acorde and not adorno:
@@ -710,7 +807,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     por_pag = _por_pagina(sistemas)
     if pdf is not None:
         for ancla, g in _fantasmas(pdf, registros, descansos, sistemas,
-                                   por_pag, ancho_pagina, modo):
+                                   por_pag, ancho_pagina, modo, semitonos):
             registros.insert(ancla, g)
 
     elegidas = elegir_posiciones(
@@ -1024,22 +1121,32 @@ def _alteracion_armadura(letra: str, fifths: int) -> int:
     return 0
 
 
-def _midi_fa(y_pt: float, sup: float, inf: float,
-             fifths: int = 0) -> Optional[int]:
-    """Altura MIDI de una cabeza sobre un pentagrama en clave de fa.
+def _midi_en_clave(y_pt: float, sup: float, inf: float,
+                   clave: Tuple[str, int, int] = CLAVE_POR_DEFECTO,
+                   fifths: int = 0) -> Optional[int]:
+    """
+    Altura escrita de una cabeza por su posición sobre el pentagrama.
 
-    La armadura (fifths) altera la nota: sin aplicarla, un Si bemol suena
-    como Si natural y sale una posición equivocada.
+    Antes esto daba por hecho que la clave era de fa. En una partitura con
+    cambio a clave de do en 4ª —habitual en trombón— o en una particella en
+    clave de sol, cada nota que hubiera que rescatar de la imagen salía
+    varios grados equivocada.
+
+    La armadura también cuenta: sin aplicarla, un Si bemol se lee como Si
+    natural y la posición sale mal.
     """
     espacio = (inf - sup) / 4.0
     if espacio <= 0:
         return None
     k = round((inf - y_pt) / (espacio / 2.0))   # medio espacio = un grado
-    idx = 2 * 7 + 4 + k                          # Sol2 = octava 2, grado G
-    octava, paso = divmod(idx, 7)
-    letra = "CDEFGAB"[paso]
-    midi = (octava + 1) * 12 + PASOS[letra] + _alteracion_armadura(letra, fifths)
-    return midi if 20 <= midi <= 100 else None
+    midi = _midi_de_grado(_grado_linea_inferior(clave) + k, fifths)
+    return midi if midi is not None and 20 <= midi <= 100 else None
+
+
+def _midi_fa(y_pt: float, sup: float, inf: float,
+             fifths: int = 0) -> Optional[int]:
+    """Compatibilidad: clave de fa en 4ª."""
+    return _midi_en_clave(y_pt, sup, inf, CLAVE_POR_DEFECTO, fifths)
 
 
 def _cabezas(a, sup: float, inf: float, izq: float, der: float,
@@ -1257,7 +1364,8 @@ def _cabezas_texto(pdf: Path, indice: int, giro: int, ancho_pt: float,
 def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                sistemas: List[dict],
                sistemas_pagina: Dict[int, List[int]],
-               ancho_pagina: float, modo: str) -> List[Tuple[int, dict]]:
+               ancho_pagina: float, modo: str,
+               semitonos: int = 0) -> List[Tuple[int, dict]]:
     """
     Notas que están en el PDF pero no en el MusicXML.
 
@@ -1470,12 +1578,17 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                         dur = ra["duracion"]
                     else:
                         continue    # sin vecinos que la enmarquen: mejor no
-                    midi = _midi_fa(cy, sup, inf, rb.get("fifths", 0))
+                    midi = _midi_en_clave(cy, sup, inf,
+                                          rb.get("clave", CLAVE_POR_DEFECTO),
+                                          rb.get("fifths", 0))
                     if midi is None:
                         continue
+                    midi += semitonos
                     x = tramo[0] + (cx - izq) / factor if factor else cx / fx
                     salida.append((ancla, {
                         "midi": midi,
+                        "midi_escrito": midi - semitonos,
+                        "clave": rb.get("clave", CLAVE_POR_DEFECTO),
                         "offset": offset,
                         "duracion": dur,
                         "pagina": pagina,

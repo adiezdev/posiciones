@@ -55,20 +55,35 @@ ALTO_CABEZA = 10.0
 PASOS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 LETRAS = "CDEFGAB"
 
+# Qué nota cae sobre la línea de abajo de cada clave, como índice diatónico
+# (octava * 7 + grado, Do = 0). Sacado del solfeo, no del código que se está
+# probando: si superponer.py se equivoca al cambiar de clave, aquí salta.
+#   fa en 4ª -> Sol2    sol en 2ª -> Mi4    do en 4ª -> Re3
+CLAVES = {
+    "fa":    {"signo": "F", "linea": 4, "base": 2 * 7 + 4},
+    "sol":   {"signo": "G", "linea": 2, "base": 4 * 7 + 2},
+    "tenor": {"signo": "C", "linea": 4, "base": 3 * 7 + 1},
+}
+
+# Cuántos semitonos por debajo de lo escrito suena la particella. Una parte
+# de trombón en clave de sol es, en la práctica, una parte en Sib: suena una
+# novena mayor más grave.
+TRANSPOSICIONES = {"ninguna": 0, "sib": -14, "octava": -12}
+
 
 def _mm_a_pt(mm: float) -> float:
     return mm * 72.0 / MM_POR_PULGADA
 
 
-def altura_de_grado(k: int) -> Tuple[str, int, int]:
+def altura_de_grado(k: int, clave: str = "fa") -> Tuple[str, int, int]:
     """
-    (letra, octava, midi) de un grado diatónico sobre la línea inferior.
+    (letra, octava, midi escrito) de un grado diatónico sobre la línea de
+    abajo del pentagrama, en la clave que sea.
 
-    En clave de fa la línea de abajo es Sol2, y k cuenta grados hacia arriba.
-    Es la inversa exacta de `superponer._midi_fa`, así que si esa función se
-    rompe, estas pruebas lo cantan.
+    Es la inversa exacta de `superponer._midi_en_clave`, así que si esa
+    función se rompe, estas pruebas lo cantan.
     """
-    idx = 2 * 7 + 4 + k
+    idx = CLAVES[clave]["base"] + k
     octava, paso = divmod(idx, 7)
     letra = LETRAS[paso]
     return letra, octava, (octava + 1) * 12 + PASOS[letra]
@@ -114,6 +129,7 @@ class Caso:
                  rotate: int = 0, margen_cropbox: float = 0.0,
                  sin_dx: float = 0.0, ritmo: bool = True,
                  borde_negro: bool = False, dpi_omr: int = 300,
+                 clave: str = "fa", transposicion: str = "ninguna",
                  semilla: int = 7):
         self.paginas = paginas
         self.sistemas = sistemas
@@ -124,6 +140,9 @@ class Caso:
         self.ritmo = ritmo
         self.borde_negro = borde_negro
         self.dpi_omr = dpi_omr
+        self.clave = clave
+        self.transposicion = transposicion
+        self.semitonos = TRANSPOSICIONES[transposicion]
         self.azar = random.Random(semilla)
 
         self.ancho_pagina = A4_ANCHO_MM / MM_POR_DECIMO
@@ -235,7 +254,7 @@ class Caso:
                     for j, dur in enumerate(duraciones):
                         dx = self.ancho_compas * reparto[j]
                         k = MELODIA[n % len(MELODIA)]
-                        letra, octava, midi = altura_de_grado(k)
+                        letra, octava, midi = altura_de_grado(k, self.clave)
                         # Media línea por grado: la cabeza se apoya en la
                         # línea o se mete en el espacio.
                         y_cab = y_bot - k * (DECIMOS_PENTAGRAMA / 8.0)
@@ -250,6 +269,10 @@ class Caso:
                             "duracion": dur,
                             "tiempo": tiempo,
                             "midi": midi,
+                            "midi_escrito": midi,
+                            # Lo que suena de verdad, que es lo que decide
+                            # la posición de la vara.
+                            "midi_sonante": midi + self.semitonos,
                             "letra": letra,
                             "octava": octava,
                             "grado": k,
@@ -432,8 +455,12 @@ class Caso:
                         ET.SubElement(tim, "beats").text = "4"
                         ET.SubElement(tim, "beat-type").text = "4"
                         cl = ET.SubElement(at, "clef")
-                        ET.SubElement(cl, "sign").text = "F"
-                        ET.SubElement(cl, "line").text = "4"
+                        ET.SubElement(cl, "sign").text = CLAVES[self.clave]["signo"]
+                        ET.SubElement(cl, "line").text = str(
+                            CLAVES[self.clave]["linea"])
+                        # A propósito NO se escribe <transpose>: Audiveris
+                        # tampoco lo escribe, porque no puede saberlo. Que
+                        # la herramienta se las arregle con la clave.
 
                     for nota in por_compas[numero - 1]:
                         atrs = {}
@@ -519,6 +546,9 @@ class Caso:
             "paginas": self.paginas,
             "sistemas_por_pagina": self.sistemas,
             "rotate": self.rotate,
+            "clave": self.clave,
+            "transposicion": self.transposicion,
+            "semitonos": self.semitonos,
             "margen_cropbox": self.margen_cropbox,
             "sin_dx": self.sin_dx,
             "pt_por_decimo": PT_POR_DECIMO,
@@ -560,12 +590,18 @@ def main() -> None:
                     help="todo negras y repartido por igual (prueba fácil)")
     ap.add_argument("--borde-negro", action="store_true",
                     help="franja negra de escáner que rompe la detección por umbral")
+    ap.add_argument("--clave", default="fa", choices=sorted(CLAVES),
+                    help="clave de la particella")
+    ap.add_argument("--transposicion", default="ninguna",
+                    choices=sorted(TRANSPOSICIONES),
+                    help="cuánto más grave suena de lo que se escribe")
     args = ap.parse_args()
 
     caso = Caso(paginas=args.paginas, sistemas=args.sistemas,
                 compases=args.compases, rotate=args.rotate,
                 margen_cropbox=args.cropbox, sin_dx=args.sin_dx,
-                ritmo=not args.sin_ritmo, borde_negro=args.borde_negro)
+                ritmo=not args.sin_ritmo, borde_negro=args.borde_negro,
+                clave=args.clave, transposicion=args.transposicion)
     rutas = caso.generar(args.carpeta)
     print("%d notas, %d pentagramas, %d páginas"
           % (len(caso.notas), len(caso.pentagramas), caso.paginas))

@@ -287,6 +287,13 @@
     z-index: 1000;
   }
   #toast.show { display: block; }
+  .ayuda {
+    margin: 6px 0 0;
+    color: var(--tinta-media);
+    font-size: 0.82rem;
+    line-height: 1.45;
+  }
+
   footer {
     margin-top: 56px;
     padding-top: 20px;
@@ -344,6 +351,20 @@
       <input id="titulo" type="text" placeholder="Se toma del original si lo dejas vacío">
     </p>
     <p class="campo">
+      <label for="lectura">Cómo está escrita la particella</label>
+      <select id="lectura">
+        <option value="auto">Deducirlo de la clave (recomendado)</option>
+        <option value="do-fa">En Do, clave de fa</option>
+        <option value="sib-sol">En Sib, clave de sol (banda)</option>
+        <option value="do-sol">En Do, clave de sol</option>
+        <option value="octava-baja">Escrita una octava por encima</option>
+      </select>
+      <p class="ayuda">
+        Una particella de "Trombón en Sib" en clave de sol suena una novena
+        más grave de lo que se ve. El archivo no lo dice en ninguna parte,
+        así que si se elige mal salen todos los números equivocados.
+      </p>
+
       <label for="criterio">Al elegir entre varias posiciones</label>
       <select id="criterio">
         <option value="equilibrado" selected>Equilibrado (recomendado)</option>
@@ -403,6 +424,7 @@ const reguladores = document.getElementById("reguladores");
 const etiqueta = document.getElementById("etiqueta");
 const original = document.getElementById("original");
 const criterio = document.getElementById("criterio");
+const lectura = document.getElementById("lectura");
 const barra = document.getElementById("barra");
 const cuenta = document.getElementById("cuenta");
 const limpiar = document.getElementById("limpiar");
@@ -435,6 +457,7 @@ async function subir(ficheros) {
     datos.append("sin_reguladores", reguladores.checked ? "true" : "false");
     datos.append("etiqueta", etiqueta.value);
     datos.append("criterio", criterio.value);
+    datos.append("lectura", lectura.value);
     datos.append("mantener_original", original.checked ? "true" : "false");
     // Si subes varios a la vez, el título escrito a mano solo vale para uno.
     datos.append("titulo", pdfs.length === 1 ? titulo.value : "");

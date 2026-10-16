@@ -54,7 +54,8 @@ COLOR_ESTADO = {
 
 def analizar(pdf: Path, musicxml: Path, transpositor: bool = False,
              preferir_cercanas: bool = False, peso_movimiento=None,
-             omr_ruta: Optional[Path] = None) -> dict:
+             omr_ruta: Optional[Path] = None,
+             lectura: str = "auto") -> dict:
     """
     Corre el pipeline de estampado recogiendo todo lo que mide por el camino.
 
@@ -70,7 +71,8 @@ def analizar(pdf: Path, musicxml: Path, transpositor: bool = False,
     diag_plano: dict = {}
     plano = superponer.preparar(partitura.cargar(musicxml), transpositor,
                                 preferir_cercanas, peso_movimiento,
-                                pdf=pdf, diag=diag_plano, libro_omr=libro)
+                                pdf=pdf, diag=diag_plano, libro_omr=libro,
+                                lectura=lectura)
     if plano is None:
         return {"ok": False, "motivo": diag_plano.get("motivo", "desconocido"),
                 "plano": None, "paginas": [], "resumen": {}}
@@ -93,6 +95,8 @@ def analizar(pdf: Path, musicxml: Path, transpositor: bool = False,
             f["pentagramas_libres"] = [list(x) for x in libres]
 
     resumen = _resumir(plano, paginas, estampadas, medido)
+    resumen["lectura"] = lectura
+    resumen["semitonos"] = diag_plano.get("semitonos", 0)
     resumen["omr"] = libro is not None
     resumen["paginas_con_omr"] = sum(
         1 for f in paginas if f.get("origen_pentagramas") == "omr")
@@ -150,8 +154,11 @@ def comparar(analisis: dict, verdad: dict) -> dict:
                 continue
             puestas.setdefault(f["pagina"], []).append(n)
 
+    from posiciones import candidatos as _posibles
+
     errores: List[float] = []
     huerfanas = 0
+    con_altura = bien_altura = 0
     for nota in verdad["notas"]:
         candidatas = [n for n in puestas.get(nota["pagina"], [])
                       if n["sistema"] == nota["sistema"]]
@@ -159,7 +166,20 @@ def comparar(analisis: dict, verdad: dict) -> dict:
             huerfanas += 1
             continue
         mejor = min(candidatas, key=lambda n: abs(n["x"] - nota["x_pt"]))
-        errores.append(abs(mejor["x"] - nota["x_pt"]))
+        error = abs(mejor["x"] - nota["x_pt"])
+        errores.append(error)
+
+        # ¿Es el número una posición posible para la nota que SUENA? Si la
+        # clave o la transposición se han leído mal, el número será válido
+        # para la altura escrita y casi nunca para la que suena. Es la forma
+        # de pillar el fallo silencioso de las particellas en Sib.
+        sonante = nota.get("midi_sonante")
+        if sonante is not None and error <= 0.5 * espacio:
+            con_altura += 1
+            posibles = {c.etiqueta for c in _posibles(sonante)}
+            if mejor["texto"] in posibles or (not posibles
+                                              and mejor["texto"] == "?"):
+                bien_altura += 1
 
     errores.sort()
     def pct(q: float) -> float:
@@ -178,6 +198,9 @@ def comparar(analisis: dict, verdad: dict) -> dict:
         "aciertos": aciertos,
         "tasa_acierto": round(aciertos / len(verdad["notas"]), 4)
                         if verdad["notas"] else 0.0,
+        "numeros_comprobados": con_altura,
+        "numeros_posibles": bien_altura,
+        "tasa_numero": round(bien_altura / con_altura, 4) if con_altura else None,
     }
 
 
@@ -358,6 +381,9 @@ def main() -> None:
     ap.add_argument("--omr", type=Path,
                     help="el .omr que deja Audiveris con -save")
     ap.add_argument("--transpositor", action="store_true")
+    ap.add_argument("--lectura", default="auto",
+                    choices=sorted(superponer.LECTURAS),
+                    help="cómo se lee la particella (auto la deduce de la clave)")
     args = ap.parse_args()
 
     if args.omr:
@@ -372,7 +398,7 @@ def main() -> None:
             print()
 
     analisis = analizar(args.pdf, args.musicxml, args.transpositor,
-                        omr_ruta=args.omr)
+                        omr_ruta=args.omr, lectura=args.lectura)
     if not analisis["ok"]:
         print("preparar() se ha rendido: %s" % analisis["motivo"])
         print("El trabajo habría caído a la vía de redibujar con MuseScore.")
@@ -394,6 +420,8 @@ def main() -> None:
         print("    %-24s %d" % (estado, n))
     print("coordenadas            modo %s, encaje %.0f%%"
           % (r["modo_x"], 100 * r["encaje"]))
+    print("lectura                %s (%+d semitonos de lo escrito a lo que suena)"
+          % (r["lectura"], r["semitonos"]))
     print("páginas                %d con números, %d con pentagramas medidos"
           % (r["paginas_con_marcas"], r["paginas_medidas"]))
     if r.get("omr"):
@@ -413,6 +441,12 @@ def main() -> None:
               % (comparacion["aciertos"], comparacion["notas_verdad"],
                  100 * comparacion["tasa_acierto"]))
         print("  notas sin número     %d" % comparacion["sin_numero"])
+        if comparacion.get("tasa_numero") is not None:
+            print("  números posibles     %d de %d (%.1f%%) para la altura "
+                  "que suena"
+                  % (comparacion["numeros_posibles"],
+                     comparacion["numeros_comprobados"],
+                     100 * comparacion["tasa_numero"]))
 
     salida = args.salida or args.pdf.with_name(args.pdf.stem + " (diagnóstico).pdf")
     verdad_datos = (json.loads(args.verdad.read_text(encoding="utf-8"))

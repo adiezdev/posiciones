@@ -133,7 +133,8 @@ def _correr(cmd: list, timeout: int, etiqueta: str) -> None:
 def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
               orientacion: str, sin_reguladores: bool = True,
               etiqueta: str = "", criterio: str = "equilibrado",
-              mantener_original: bool = False) -> None:
+              mantener_original: bool = False,
+              lectura: str = "auto") -> None:
     d = DATOS / tid
     try:
         datos = json.loads((d / "estado.json").read_text(encoding="utf-8"))
@@ -162,6 +163,15 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
         # partitura sin decir nada. Nos quedamos con la más completa y lo
         # avisamos para que se note que ha pasado.
         crudo = max(encontrados, key=_compases)
+
+        # Cómo se lee la particella. Audiveris da la altura escrita y nunca
+        # un <transpose>, porque no puede saberlo: en "auto" se deduce de la
+        # clave, y una parte de trombón en clave de sol es una parte en Sib.
+        arbol_crudo = partitura.cargar(crudo)
+        semitonos = superponer.LECTURAS.get(lectura)
+        if semitonos is None:
+            semitonos = superponer._lectura_automatica(arbol_crudo.getroot())
+        _guardar(tid, lectura=lectura, semitonos=semitonos)
         if len(encontrados) > 1:
             _guardar(tid, exportes=len(encontrados), aviso_exportes=(
                 f"Audiveris ha partido el PDF en {len(encontrados)} hojas y "
@@ -174,16 +184,18 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
             libro = _libro_omr(export)
             plano = superponer.preparar(partitura.cargar(crudo),
                                         transpositor, cercanas, peso,
-                                        pdf=pdf_in, libro_omr=libro)
+                                        pdf=pdf_in, libro_omr=libro,
+                                        lectura=lectura)
             if plano is not None:
                 _guardar(tid, estado="generando")
                 pdf_out = d / "resultado.pdf"
                 puestas, medido = superponer.estampar(pdf_in, pdf_out, plano)
 
                 score = converter.parse(str(crudo))
-                avisos = validar(score, transpositor)
+                avisos = validar(score, transpositor, semitonos)
                 _guardar(
                     tid, estado="listo", notas=puestas,
+                    lectura=lectura, semitonos=semitonos,
                     modo_x=plano.modo_x,
                     geometria=("audiveris" if plano.pentagramas_omr
                                else "medida en el PDF"),
@@ -225,12 +237,13 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
         _guardar(tid, estado="anotando", titulo=titulo,
                  apaisado=apaisado, papel=papel)
         score = converter.parse(str(crudo))
-        avisos = validar(score, transpositor)
+        avisos = validar(score, transpositor, semitonos)
         if sin_reguladores:
             quitar_reguladores(score)
         notas, fuera = anotar_score(score, transpositor,
                                     preferir_cercanas=cercanas,
-                                    peso_movimiento=peso)
+                                    peso_movimiento=peso,
+                                    semitonos=semitonos)
 
         xml = d / "resultado.musicxml"
         score.write("musicxml", str(xml))
@@ -294,6 +307,7 @@ async def crear(
     etiqueta: str = Form(""),
     criterio: str = Form("equilibrado"),
     mantener_original: bool = Form(False),
+    lectura: str = Form("auto"),
 ):
     nombre = _sanear(archivo.filename or "partitura.pdf")
     if not nombre.lower().endswith(".pdf"):
@@ -302,6 +316,8 @@ async def crear(
         orientacion = "auto"
     if criterio not in CRITERIOS:
         criterio = "equilibrado"
+    if lectura not in superponer.LECTURAS:
+        lectura = "auto"
 
     contenido = await archivo.read()
     if not contenido:
@@ -315,11 +331,11 @@ async def crear(
     _guardar(tid, id=tid, nombre=nombre, archivo=nombre, estado="en_cola",
              transpositor=transpositor, orientacion=orientacion,
              sin_reguladores=sin_reguladores,
-             criterio=criterio,
+             criterio=criterio, lectura=lectura,
              mantener_original=mantener_original, creado=time.time())
     _pool.submit(_trabajar, tid, transpositor, titulo, orientacion,
                  sin_reguladores, etiqueta, criterio,
-                 mantener_original)
+                 mantener_original, lectura)
 
     return JSONResponse({"id": tid}, status_code=202)
 
