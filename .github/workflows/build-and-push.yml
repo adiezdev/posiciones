@@ -2,7 +2,10 @@ name: Build and Push Docker Image
 
 on:
   push:
-    branches: [main]
+    # Las ramas de trabajo tambien construyen imagen, para poder
+    # probarlas en el NAS antes de fusionar. Cada una publica su
+    # propia etiqueta, asi que :latest sigue siendo solo main.
+    branches: [main, "claude-*"]
   workflow_dispatch:
 
 jobs:
@@ -36,6 +39,7 @@ jobs:
           images: ghcr.io/${{ steps.img.outputs.nombre }}
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=ref,event=branch
             type=sha,format=short
 
       - name: Build and push

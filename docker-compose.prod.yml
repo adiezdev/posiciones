@@ -6,9 +6,14 @@ services:
     ports:
       - "8080:8000"
     volumes:
-      - ./datos:/app/datos
+      # La app escribe en /datos (DATOS_DIR del Dockerfile). Montarlo
+      # en /app/datos dejaba los trabajos dentro del contenedor, y
+      # cada actualizacion de watchtower se los llevaba por delante.
+      - ./datos:/datos
     environment:
       - PYTHONUNBUFFERED=1
+      # Cuantos dias se guardan las partituras ya terminadas.
+      - RETENCION_DIAS=30
       - TZ=Europe/Madrid
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
