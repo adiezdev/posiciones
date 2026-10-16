@@ -28,8 +28,8 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.645,
+   "error_mediano_pt": 0.44,
+   "error_p95_pt": 0.64,
    "error_max_pt": 0.659,
    "espacio_pt": 4.961,
    "aciertos": 131,
@@ -69,8 +69,8 @@
   "comparacion": {
    "notas_verdad": 99,
    "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.645,
+   "error_mediano_pt": 0.227,
+   "error_p95_pt": 0.64,
    "error_max_pt": 0.659,
    "espacio_pt": 4.961,
    "aciertos": 99,
@@ -110,9 +110,9 @@
   "comparacion": {
    "notas_verdad": 295,
    "sin_numero": 0,
-   "error_mediano_pt": 0.514,
-   "error_p95_pt": 0.647,
-   "error_max_pt": 0.658,
+   "error_mediano_pt": 0.429,
+   "error_p95_pt": 0.637,
+   "error_max_pt": 0.656,
    "espacio_pt": 4.961,
    "aciertos": 295,
    "tasa_acierto": 1.0,
@@ -120,7 +120,7 @@
    "numeros_posibles": 295,
    "tasa_numero": 1.0
   },
-  "segundos": 0.4
+  "segundos": 0.5
  },
  {
   "caso": "girada-90",
@@ -151,8 +151,8 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.645,
+   "error_mediano_pt": 0.44,
+   "error_p95_pt": 0.64,
    "error_max_pt": 0.659,
    "espacio_pt": 4.961,
    "aciertos": 131,
@@ -192,8 +192,8 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.645,
+   "error_mediano_pt": 0.44,
+   "error_p95_pt": 0.64,
    "error_max_pt": 0.659,
    "espacio_pt": 4.961,
    "aciertos": 131,
@@ -233,8 +233,8 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.645,
+   "error_mediano_pt": 0.44,
+   "error_p95_pt": 0.64,
    "error_max_pt": 0.659,
    "espacio_pt": 4.961,
    "aciertos": 131,
@@ -274,8 +274,8 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.645,
+   "error_mediano_pt": 0.44,
+   "error_p95_pt": 0.641,
    "error_max_pt": 0.659,
    "espacio_pt": 4.961,
    "aciertos": 131,
@@ -315,8 +315,8 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.645,
+   "error_mediano_pt": 0.44,
+   "error_p95_pt": 0.641,
    "error_max_pt": 0.659,
    "espacio_pt": 4.961,
    "aciertos": 131,
@@ -356,7 +356,7 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.52,
+   "error_mediano_pt": 0.447,
    "error_p95_pt": 1.178,
    "error_max_pt": 2.848,
    "espacio_pt": 4.961,
@@ -366,7 +366,7 @@
    "numeros_posibles": 130,
    "tasa_numero": 1.0
   },
-  "segundos": 0.3
+  "segundos": 0.4
  },
  {
   "caso": "sin-coordenadas-50",
@@ -397,14 +397,14 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.547,
-   "error_p95_pt": 1.424,
-   "error_max_pt": 2.667,
+   "error_mediano_pt": 0.44,
+   "error_p95_pt": 1.403,
+   "error_max_pt": 2.313,
    "espacio_pt": 4.961,
-   "aciertos": 130,
-   "tasa_acierto": 0.9924,
-   "numeros_comprobados": 130,
-   "numeros_posibles": 130,
+   "aciertos": 131,
+   "tasa_acierto": 1.0,
+   "numeros_comprobados": 131,
+   "numeros_posibles": 131,
    "tasa_numero": 1.0
   },
   "segundos": 0.3
@@ -438,14 +438,14 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.574,
-   "error_p95_pt": 2.245,
-   "error_max_pt": 3.65,
+   "error_mediano_pt": 0.241,
+   "error_p95_pt": 1.898,
+   "error_max_pt": 2.544,
    "espacio_pt": 4.961,
-   "aciertos": 128,
-   "tasa_acierto": 0.9771,
-   "numeros_comprobados": 128,
-   "numeros_posibles": 128,
+   "aciertos": 130,
+   "tasa_acierto": 0.9924,
+   "numeros_comprobados": 130,
+   "numeros_posibles": 130,
    "tasa_numero": 1.0
   },
   "segundos": 0.3
@@ -479,8 +479,8 @@
   "comparacion": {
    "notas_verdad": 128,
    "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.651,
+   "error_mediano_pt": 0.458,
+   "error_p95_pt": 0.633,
    "error_max_pt": 0.651,
    "espacio_pt": 4.961,
    "aciertos": 128,
@@ -520,15 +520,15 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 8.143,
-   "error_p95_pt": 32.598,
+   "error_mediano_pt": 0.087,
+   "error_p95_pt": 17.186,
    "error_max_pt": 38.741,
    "espacio_pt": 4.961,
-   "aciertos": 13,
-   "tasa_acierto": 0.0992,
-   "numeros_comprobados": 13,
-   "numeros_posibles": 2,
-   "tasa_numero": 0.1538
+   "aciertos": 99,
+   "tasa_acierto": 0.7557,
+   "numeros_comprobados": 99,
+   "numeros_posibles": 96,
+   "tasa_numero": 0.9697
   },
   "segundos": 0.4
  },
@@ -561,9 +561,9 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.634,
-   "error_p95_pt": 0.996,
-   "error_max_pt": 1.039,
+   "error_mediano_pt": 0.636,
+   "error_p95_pt": 1.117,
+   "error_max_pt": 1.139,
    "espacio_pt": 4.961,
    "aciertos": 131,
    "tasa_acierto": 1.0,
@@ -602,9 +602,9 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.634,
-   "error_p95_pt": 0.996,
-   "error_max_pt": 1.039,
+   "error_mediano_pt": 0.636,
+   "error_p95_pt": 1.117,
+   "error_max_pt": 1.139,
    "espacio_pt": 4.961,
    "aciertos": 131,
    "tasa_acierto": 1.0,
@@ -643,8 +643,8 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.645,
+   "error_mediano_pt": 0.44,
+   "error_p95_pt": 0.64,
    "error_max_pt": 0.659,
    "espacio_pt": 4.961,
    "aciertos": 131,
@@ -684,8 +684,8 @@
   "comparacion": {
    "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.645,
+   "error_mediano_pt": 0.44,
+   "error_p95_pt": 0.64,
    "error_max_pt": 0.659,
    "espacio_pt": 4.961,
    "aciertos": 131,
@@ -708,7 +708,7 @@
   "estampadas": 131,
   "descartadas": 0,
   "estados": {
-   "ajustada": 131
+   "puesta": 131
   },
   "modo_x": "medida",
   "encaje": 1.0,
@@ -749,8 +749,7 @@
   "estampadas": 131,
   "descartadas": 0,
   "estados": {
-   "ajustada": 124,
-   "puesta": 7
+   "puesta": 131
   },
   "modo_x": "medida",
   "encaje": 1.0,
@@ -778,6 +777,130 @@
    "tasa_numero": 1.0
   },
   "segundos": 0.2
+ },
+ {
+  "caso": "anchos-rotos",
+  "ok": true,
+  "motivo": null,
+  "inclinacion": 0.0,
+  "notas_omr": 131,
+  "marcas": 131,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 131,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 131
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 2,
+  "paginas_con_marcas": 2,
+  "paginas_medidas": 2,
+  "medido": true,
+  "cobertura": 1.0,
+  "dudosas": 0,
+  "lectura": "auto",
+  "semitonos": 0,
+  "omr": false,
+  "paginas_con_omr": 0,
+  "comparacion": {
+   "notas_verdad": 131,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.018,
+   "error_p95_pt": 0.018,
+   "error_max_pt": 0.018,
+   "espacio_pt": 4.961,
+   "aciertos": 131,
+   "tasa_acierto": 1.0,
+   "numeros_comprobados": 131,
+   "numeros_posibles": 131,
+   "tasa_numero": 1.0
+  },
+  "segundos": 0.3
+ },
+ {
+  "caso": "anchos-rotos-sin-cabezas",
+  "ok": true,
+  "motivo": null,
+  "inclinacion": 0.0,
+  "notas_omr": 131,
+  "marcas": 131,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 131,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 131
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 2,
+  "paginas_con_marcas": 2,
+  "paginas_medidas": 2,
+  "medido": true,
+  "cobertura": 1.0,
+  "dudosas": 0,
+  "lectura": "auto",
+  "semitonos": 0,
+  "omr": false,
+  "paginas_con_omr": 0,
+  "comparacion": {
+   "notas_verdad": 131,
+   "sin_numero": 0,
+   "error_mediano_pt": 2.973,
+   "error_p95_pt": 19.732,
+   "error_max_pt": 31.498,
+   "espacio_pt": 4.961,
+   "aciertos": 62,
+   "tasa_acierto": 0.4733,
+   "numeros_comprobados": 62,
+   "numeros_posibles": 56,
+   "tasa_numero": 0.9032
+  },
+  "segundos": 0.4
+ },
+ {
+  "caso": "anchos-rotos-con-omr",
+  "ok": true,
+  "motivo": null,
+  "inclinacion": 0.0,
+  "notas_omr": 131,
+  "marcas": 131,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 131,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 24,
+   "ajustada": 107
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 2,
+  "paginas_con_marcas": 2,
+  "paginas_medidas": 2,
+  "medido": true,
+  "cobertura": 1.0,
+  "dudosas": 0,
+  "lectura": "auto",
+  "semitonos": 0,
+  "omr": true,
+  "paginas_con_omr": 2,
+  "comparacion": {
+   "notas_verdad": 131,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.018,
+   "error_p95_pt": 0.018,
+   "error_max_pt": 0.018,
+   "espacio_pt": 4.961,
+   "aciertos": 131,
+   "tasa_acierto": 1.0,
+   "numeros_comprobados": 131,
+   "numeros_posibles": 131,
+   "tasa_numero": 1.0
+  },
+  "segundos": 0.3
  },
  {
   "caso": "escaneo-torcido",
@@ -808,9 +931,9 @@
   "comparacion": {
    "notas_verdad": 64,
    "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.642,
-   "error_max_pt": 0.659,
+   "error_mediano_pt": 0.378,
+   "error_p95_pt": 0.623,
+   "error_max_pt": 0.645,
    "espacio_pt": 4.961,
    "aciertos": 64,
    "tasa_acierto": 1.0,

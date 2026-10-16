@@ -74,6 +74,13 @@ BATERIA = [
     # Fotocopia torcida: la página se rasteriza y se gira 1,4°. La verdad
     # sigue siendo la de la página derecha, así que esto mide si
     # normalizar.py la devuelve a su sitio.
+    # Un compás con el ancho mal en el MusicXML desplaza todos los que
+    # vengan detrás en el sistema: los números se van en bloque a la
+    # derecha o a la izquierda y dejan de caer bajo su nota.
+    ("anchos-rotos", {"ancho_roto": 0.25, "cabezas_texto": True}),
+    ("anchos-rotos-sin-cabezas", {"ancho_roto": 0.25}),
+    ("anchos-rotos-con-omr", {"ancho_roto": 0.25, "cabezas_texto": True,
+                              "_omr": True}),
     ("escaneo-torcido", {"inclinar": 1.4, "paginas": 1}),
     ("escaneo-derecho", {"inclinar": 0.01, "paginas": 1}),
 ]

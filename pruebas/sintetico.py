@@ -134,7 +134,8 @@ class Caso:
                  sin_dx: float = 0.0, ritmo: bool = True,
                  borde_negro: bool = False, dpi_omr: int = 300,
                  clave: str = "fa", transposicion: str = "ninguna",
-                 cabezas_texto: bool = False, inclinar: float = 0.0,
+                 cabezas_texto: bool = False, ancho_roto: float = 0.0,
+                 inclinar: float = 0.0,
                  dpi_escaneo: int = 300, semilla: int = 7):
         self.paginas = paginas
         self.sistemas = sistemas
@@ -147,6 +148,7 @@ class Caso:
         self.dpi_omr = dpi_omr
         self.clave = clave
         self.cabezas_texto = cabezas_texto
+        self.ancho_roto = ancho_roto
         self.inclinar = inclinar
         self.dpi_escaneo = dpi_escaneo
         self.transposicion = transposicion
@@ -472,8 +474,16 @@ class Caso:
             for s in range(self.sistemas):
                 for c in range(self.compases):
                     numero += 1
+                    ancho = self.ancho_compas
+                    if self.ancho_roto and self.azar.random() < self.ancho_roto:
+                        # Audiveris no siempre acierta el ancho de un compás.
+                        # Como la x de cada compás se calcula sumando los
+                        # anchos de los anteriores, un error aquí desplaza
+                        # TODOS los compases que vengan detrás en el sistema,
+                        # y el PDF sigue estando bien maquetado.
+                        ancho *= 1.0 + self.azar.choice((-0.18, 0.18))
                     m = ET.SubElement(parte, "measure", number=str(numero),
-                                      width="%.2f" % self.ancho_compas)
+                                      width="%.2f" % ancho)
                     if c == 0:
                         imp = ET.SubElement(m, "print")
                         if s == 0 and pagina > 0:
@@ -666,6 +676,8 @@ def main() -> None:
                     help="todo negras y repartido por igual (prueba fácil)")
     ap.add_argument("--borde-negro", action="store_true",
                     help="franja negra de escáner que rompe la detección por umbral")
+    ap.add_argument("--ancho-roto", type=float, default=0.0, metavar="FRAC",
+                    help="fraccion de compases con el ancho mal en el MusicXML")
     ap.add_argument("--inclinar", type=float, default=0.0, metavar="GRADOS",
                     help="rasterizar y torcer la pagina, como una fotocopia")
     ap.add_argument("--cabezas-texto", action="store_true",
@@ -682,7 +694,8 @@ def main() -> None:
                 margen_cropbox=args.cropbox, sin_dx=args.sin_dx,
                 ritmo=not args.sin_ritmo, borde_negro=args.borde_negro,
                 clave=args.clave, transposicion=args.transposicion,
-                cabezas_texto=args.cabezas_texto, inclinar=args.inclinar)
+                cabezas_texto=args.cabezas_texto, inclinar=args.inclinar,
+                ancho_roto=args.ancho_roto)
     rutas = caso.generar(args.carpeta)
     print("%d notas, %d pentagramas, %d páginas"
           % (len(caso.notas), len(caso.pentagramas), caso.paginas))

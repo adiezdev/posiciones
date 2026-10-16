@@ -111,6 +111,8 @@ class Plano:
     # Cuando están, evitan el peor acantilado que tiene esto: que la
     # detección por imagen no acierte el número de sistemas de una página.
     pentagramas_omr: Optional[Dict[int, List[Tuple[float, float, float, float]]]] = None
+    # Centros de las cabezas que vio Audiveris, en puntos y por página.
+    cabezas_omr: Optional[Dict[int, List[Tuple[float, float]]]] = None
 
 
 # --- lectura del MusicXML ---------------------------------------------------
@@ -768,7 +770,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     for r in registros:
         r["y"] = sistemas[r["sistema"]]["y_numeros"] if sistemas else 0.0
 
-    pent_omr = _pentagramas_del_omr(libro_omr, mm_por_decimo, diag)
+    pent_omr, cab_omr = _geometria_del_omr(libro_omr, mm_por_decimo, diag)
 
     modo, acierto = _referencias(registros, margen_izq, ancho_pagina)
     if diag is not None:
@@ -886,27 +888,30 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         rellenadas=sum(1 for r in registros if r.get("estimada")),
         sin_x=sum(1 for r in registros if r["x"] is None),
         pentagramas_omr=pent_omr,
+        cabezas_omr=cab_omr,
     )
 
 
-def _pentagramas_del_omr(libro, mm_por_decimo: float, diag: Optional[dict]
-                         ) -> Optional[Dict[int, List[Tuple[float, float, float, float]]]]:
-    """Pasa a puntos los pentagramas que trae el .omr, si lo hay."""
+def _geometria_del_omr(libro, mm_por_decimo: float, diag: Optional[dict]):
+    """Pentagramas y cabezas del .omr, en puntos y por página."""
     if libro is None:
-        return None
+        return None, None
     try:
         import omr
     except ImportError:
-        return None
-    salida: Dict[int, List[Tuple[float, float, float, float]]] = {}
+        return None, None
+    pentagramas: Dict[int, List[Tuple[float, float, float, float]]] = {}
+    cabezas: Dict[int, List[Tuple[float, float]]] = {}
     for indice, hoja in enumerate(libro.hojas):
         factor = omr.escala_a_puntos(hoja, mm_por_decimo)
         if factor is None:
             continue
-        salida[indice] = omr.pentagramas_en_puntos(hoja, factor)
+        pentagramas[indice] = omr.pentagramas_en_puntos(hoja, factor)
+        cabezas[indice] = [(c.x * factor, c.y * factor) for c in hoja.cabezas]
     if diag is not None:
-        diag["pentagramas_omr"] = {k: len(v) for k, v in salida.items()}
-    return salida or None
+        diag["pentagramas_omr"] = {k: len(v) for k, v in pentagramas.items()}
+        diag["cabezas_omr"] = {k: len(v) for k, v in cabezas.items()}
+    return (pentagramas or None), (cabezas or None)
 
 
 def _por_pagina(sistemas: List[dict]) -> Dict[int, List[int]]:
@@ -1892,6 +1897,130 @@ def _pentagramas_fiables(pentagramas, esperados: int, ancho_pt: float,
     return list(pentagramas)
 
 
+# Hasta dónde puede corregirse la posición de un número. Más allá de esto
+# no es un desajuste de coordenadas: es que estamos emparejando mal y es
+# preferible dejar las cosas como estaban.
+DESPLAZAMIENTO_MAX = 10.0        # en espacios de pentagrama
+MIN_PARA_ALINEAR = 3             # números por sistema
+
+
+def _cabezas_imagen(pdf: Path, indice: int, bandas: List[tuple],
+                    ancho_pt: float, alto_pt: float,
+                    dpi: int = 150) -> Dict[int, List[Tuple[float, float]]]:
+    """
+    Cabezas de nota buscadas en la imagen, pentagrama a pentagrama.
+
+    Es el último recurso para alinear: una partitura escaneada no tiene
+    glifos de texto que mirar, y si además no hay .omr, esto es lo único
+    que dice dónde están las notas de verdad. Detecta peor que las otras
+    dos vías, pero el voto del desplazamiento aguanta bastante ruido
+    porque las detecciones falsas proponen valores dispersos.
+    """
+    try:
+        import numpy as np
+        import pypdfium2 as pdfium
+    except ImportError:
+        return {}
+    try:
+        doc = pdfium.PdfDocument(str(pdf))
+        try:
+            imagen = doc[indice].render(scale=dpi / 72.0).to_pil().convert("L")
+        finally:
+            doc.close()
+    except Exception:  # noqa: BLE001
+        return {}
+
+    a = np.asarray(imagen)
+    escala_x = a.shape[1] / ancho_pt
+    escala_y = a.shape[0] / alto_pt
+    salida: Dict[int, List[Tuple[float, float]]] = {}
+    for k, banda in enumerate(bandas):
+        sup, inf, izq, der = banda[:4]
+        try:
+            encontradas = _cabezas(a, sup, inf, izq, der, escala_x, escala_y)
+        except Exception:  # noqa: BLE001
+            continue
+        salida[k] = [(cx, cy) for cx, cy, _ancho in encontradas]
+    return salida
+
+
+def _desplazamiento_comun(marcas: List[float], cabezas: List[float],
+                          espacio: float) -> Optional[float]:
+    """
+    El desplazamiento que mejor explica a la vez a todos los números.
+
+    Se vota: cada pareja (número, cabeza) propone la distancia que las
+    separa, y gana la distancia más repetida. Es robusto porque las parejas
+    equivocadas proponen valores dispersos y las buenas proponen todas la
+    misma, así que no hace falta saber de antemano qué número va con qué
+    cabeza.
+    """
+    if len(marcas) < MIN_PARA_ALINEAR or len(cabezas) < MIN_PARA_ALINEAR:
+        return None
+    cajon = max(0.4 * espacio, 0.5)
+    limite = DESPLAZAMIENTO_MAX * espacio
+    votos: Dict[int, List[float]] = {}
+    for m in marcas:
+        for h in cabezas:
+            d = h - m
+            if abs(d) <= limite:
+                votos.setdefault(int(round(d / cajon)), []).append(d)
+    if not votos:
+        return None
+    mejor = max(votos.values(), key=len)
+    if len(mejor) < max(MIN_PARA_ALINEAR, 0.35 * len(marcas)):
+        return None    # ningún desplazamiento explica a bastantes
+    return sum(mejor) / len(mejor)
+
+
+def _alinear_con_cabezas(marcas: List[float], cabezas: List[float],
+                         espacio: float) -> Optional[List[float]]:
+    """
+    Recoloca los números de un sistema sobre las cabezas que hay dibujadas.
+
+    Las coordenadas del MusicXML se reconstruyen sumando el ancho de cada
+    compás. Si Audiveris se equivoca en uno —y se equivoca— todos los
+    compases siguientes del sistema salen corridos la misma distancia, y
+    los números se van en bloque a la derecha o a la izquierda. No es un
+    error de medio milímetro: son varios espacios, y el número acaba bajo
+    otra nota, que es peor que no ponerlo.
+
+    Lo que sí es de fiar es dónde están dibujadas las cabezas. Así que la
+    reconstrucción se usa solo para saber el ORDEN de los números, y la
+    posición la ponen las cabezas:
+
+      - si hay tantas cabezas como números, van una a una por orden, que es
+        exacto y arregla incluso varios bloques desplazados de forma
+        distinta dentro del mismo sistema
+      - si no cuadran, se vota un desplazamiento común y se aplica entero
+
+    Devuelve None si no se puede afinar o si la corrección sale disparatada.
+    """
+    if len(marcas) < MIN_PARA_ALINEAR or not cabezas:
+        return None
+    limite = DESPLAZAMIENTO_MAX * espacio
+
+    if len(cabezas) == len(marcas):
+        nuevas = list(cabezas)
+    else:
+        # Un desplazamiento por compás en vez de uno por sistema parecía lo
+        # suyo —el error nace al sumar anchos de compás, así que no es
+        # uniforme— pero medido sale peor: con las cabezas mal detectadas
+        # que es cuando hace falta, acaba colocando números bajo la nota
+        # equivocada, y eso es peor que dejarlos algo corridos.
+        d = _desplazamiento_comun(marcas, cabezas, espacio)
+        if d is None or abs(d) < 0.15 * espacio:
+            return None
+        nuevas = [m + d for m in marcas]
+
+    if max(abs(n - m) for n, m in zip(nuevas, marcas)) > limite:
+        return None
+    # El orden no puede cambiar: si cambia, hemos emparejado mal.
+    if any(nuevas[i] >= nuevas[i + 1] for i in range(len(nuevas) - 1)):
+        return None
+    return nuevas
+
+
 def a_hoja(x_vista: float, y_arriba: float, giro: int,
            ancho_caja: float, alto_caja: float, alto_pt: float,
            orig_x: float = 0.0, orig_y: float = 0.0) -> Tuple[float, float]:
@@ -2064,6 +2193,36 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                           for k, s in enumerate(en_pagina)
                           if k < len(pentagramas)}
 
+            # Cabezas de nota por sistema. Las del .omr son exactas; si no,
+            # las que se reconocen por su glifo de texto.
+            cabezas_pag = (plano.cabezas_omr or {}).get(indice)
+            origen_cabezas = "omr"
+            if not cabezas_pag and cabeceas:
+                cabezas_pag = cabeceas
+                origen_cabezas = "glifos"
+            por_banda: Dict[int, List[Tuple[float, float]]] = {}
+            if not cabezas_pag and pentagramas:
+                # Ni .omr ni glifos: un escaneo. Queda mirar la imagen.
+                por_banda = _cabezas_imagen(pdf_original, indice, pentagramas,
+                                            ancho_pt, alto_pt)
+                origen_cabezas = "imagen" if por_banda else "ninguna"
+
+            cabezas_sistema: Dict[int, List[float]] = {}
+            for k, s_i in enumerate(en_pagina):
+                banda = banda_pent.get(s_i)
+                if banda is None:
+                    continue
+                if por_banda:
+                    cabezas_sistema[s_i] = sorted(hx for hx, _hy
+                                                  in por_banda.get(k, []))
+                    continue
+                arriba = banda[0] - 3.0 * espacio
+                abajo = banda[1] + 3.0 * espacio
+                cabezas_sistema[s_i] = sorted(
+                    hx for hx, hy in (cabezas_pag or []) if arriba <= hy <= abajo)
+            if ficha is not None:
+                ficha["origen_cabezas"] = origen_cabezas
+
             if ficha is not None:
                 ficha.update({
                     "medido": medido,
@@ -2074,15 +2233,41 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                     "alturas": {str(k): v for k, v in alturas.items()},
                 })
 
-            # Ya en puntos de la página vista, para medir lo juntas que van.
-            colocadas = []
+            # Primero, de golpe por sistema: si un compás traía el ancho mal,
+            # todos los números que vengan detrás están corridos lo mismo y
+            # hay que devolverlos en bloque antes de afinar uno a uno.
+            previas: Dict[int, float] = {}
             for m in marcas:
                 cal = escalas.get(m.sistema)
                 if cal:
                     origen, izq, factor = cal
-                    x = izq + (m.x - origen) * factor
+                    previas[id(m)] = izq + (m.x - origen) * factor
                 else:
-                    x = m.x * fx
+                    previas[id(m)] = m.x * fx
+
+            alineadas: Dict[int, float] = {}
+            realineados = 0
+            for s_i, cabezas_s in cabezas_sistema.items():
+                suyas = sorted((m for m in marcas if m.sistema == s_i),
+                               key=lambda m: previas[id(m)])
+                xs_previas = [previas[id(m)] for m in suyas]
+                nuevas = _alinear_con_cabezas(xs_previas, cabezas_s, espacio)
+                if nuevas is None:
+                    continue
+                movidas = 0
+                for m, nueva in zip(suyas, nuevas):
+                    if abs(nueva - previas[id(m)]) > 0.1 * espacio:
+                        movidas += 1
+                    alineadas[id(m)] = nueva
+                if movidas:
+                    realineados += 1
+            if ficha is not None:
+                ficha["sistemas_realineados"] = realineados
+
+            # Ya en puntos de la página vista, para medir lo juntas que van.
+            colocadas = []
+            for m in marcas:
+                x = alineadas.get(id(m), previas[id(m)])
                 x_bruta = x
                 estado = "puesta"
                 conf = m.confianza

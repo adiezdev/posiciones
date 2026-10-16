@@ -62,13 +62,25 @@
     color: var(--tinta);
     background: rgba(255,255,255,.72);
     border: 1px solid transparent; border-radius: 4px;
-    padding: 1px 3px; cursor: pointer; user-select: none;
-    white-space: nowrap;
+    padding: 1px 3px; cursor: grab; user-select: none;
+    white-space: nowrap; touch-action: none;
+  }
+  .num.arrastrando {
+    cursor: grabbing; z-index: 25;
+    border-color: var(--acento); background: #fff;
+    box-shadow: 0 2px 10px rgba(0,0,0,.2);
   }
   .num:hover { border-color: var(--acento); background: #fff; }
   .num.dudosa { color: var(--aviso); border-color: rgba(180,112,13,.35); }
   .num.mano   { color: var(--verde); border-color: rgba(47,107,63,.45); }
   .num.elegida { border-color: var(--acento); box-shadow: 0 0 0 2px rgba(138,43,43,.18); }
+
+  /* Guía vertical: enseña por dónde va el número mientras se arrastra,
+     que es lo que cuesta ver a ojo contra el pentagrama. */
+  .guia {
+    position: absolute; top: 0; bottom: 0; width: 1px;
+    background: var(--acento); opacity: .45; pointer-events: none; z-index: 24;
+  }
 
   .ficha {
     position: absolute; z-index: 30; transform: translate(-50%, 8px);
@@ -98,6 +110,9 @@
   }
   .barra-estado.visible { opacity: 1; }
 
+  .hoja.moviendo { cursor: grabbing; }
+  .hoja.moviendo img { pointer-events: none; }
+
   .cargando, .fallo { text-align: center; color: var(--tinta-media); padding: 60px 20px; }
   .fallo { color: var(--acento); }
 </style>
@@ -108,7 +123,7 @@
   <h1 id="titulo">Repasar posiciones</h1>
   <span class="pista contador" id="cuenta"></span>
   <span class="hueco"></span>
-  <span class="pista" id="ayuda">Pincha un número para cambiarlo. Pincha en una nota sin número para añadirlo.</span>
+  <span class="pista" id="ayuda">Pincha un número para cambiarlo, arrástralo para moverlo. Pincha en una nota sin número para añadirlo.</span>
   <button class="boton" id="descargar">Descargar PDF</button>
   <button class="boton principal" id="guardar" disabled>Guardar cambios</button>
 </header>
@@ -218,11 +233,91 @@ function crearNumero(pagina, n) {
              ? "Colocado con poca certeza: conviene mirarlo" : "";
   colocar(el, pagina, n);
   n._el = el;
+  el.addEventListener("pointerdown", (e) => empezarArrastre(e, pagina, n, el));
   el.addEventListener("click", (e) => {
     e.stopPropagation();
+    // Si venía de arrastrar, el clic es el final del gesto, no una
+    // intención de abrir la ficha.
+    if (el._arrastrado) { el._arrastrado = false; return; }
     abrirFicha(pagina, n, el);
   });
   return el;
+}
+
+// Por debajo de esto el gesto es un clic con pulso, no un arrastre.
+const UMBRAL_ARRASTRE = 3;   // píxeles de pantalla
+
+function empezarArrastre(e, pagina, n, el) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  cerrarFicha();
+  el._arrastrado = false;
+
+  const caja = el.parentElement;
+  const img = caja.querySelector("img");
+  const r = img.getBoundingClientRect();
+  const inicio = { x: e.clientX, y: e.clientY };
+  const origen = { x: n.x, y: n.y };
+  let moviendo = false;
+  let guia = null;
+
+  el.setPointerCapture(e.pointerId);
+
+  function aPuntos(ev) {
+    return {
+      x: origen.x + (ev.clientX - inicio.x) / r.width * pagina.ancho_pt,
+      y: origen.y + (ev.clientY - inicio.y) / r.height * pagina.alto_pt,
+    };
+  }
+
+  function mover(ev) {
+    if (!moviendo) {
+      if (Math.hypot(ev.clientX - inicio.x, ev.clientY - inicio.y) < UMBRAL_ARRASTRE)
+        return;
+      moviendo = true;
+      el._arrastrado = true;
+      el.classList.add("arrastrando");
+      caja.classList.add("moviendo");
+      guia = document.createElement("div");
+      guia.className = "guia";
+      caja.appendChild(guia);
+    }
+    const p = aPuntos(ev);
+    // Que no se escape de la hoja.
+    n.x = Math.min(Math.max(p.x, 0), pagina.ancho_pt);
+    n.y = Math.min(Math.max(p.y, 0), pagina.alto_pt);
+    colocar(el, pagina, n);
+    guia.style.left = (100 * n.x / pagina.ancho_pt) + "%";
+  }
+
+  function soltar() {
+    el.releasePointerCapture?.(e.pointerId);
+    el.removeEventListener("pointermove", mover);
+    el.removeEventListener("pointerup", soltar);
+    el.removeEventListener("pointercancel", cancelar);
+    if (guia) guia.remove();
+    el.classList.remove("arrastrando");
+    caja.classList.remove("moviendo");
+    if (!moviendo) return;
+    // Moverlo a mano es decir "aquí va": deja de ser dudoso.
+    n.a_mano = true;
+    n.confianza = 1;
+    refrescar(pagina, n);
+    marcarSucio();
+  }
+
+  function cancelar() {
+    n.x = origen.x;
+    n.y = origen.y;
+    colocar(el, pagina, n);
+    moviendo = false;
+    soltar();
+  }
+
+  el.addEventListener("pointermove", mover);
+  el.addEventListener("pointerup", soltar);
+  el.addEventListener("pointercancel", cancelar);
 }
 
 function refrescar(pagina, n) {
@@ -273,11 +368,12 @@ function abrirFicha(pagina, n, el) {
 
   const nota = document.createElement("p");
   nota.className = "nota";
-  nota.textContent = n.a_mano
+  nota.textContent = (n.a_mano
     ? "Lo has corregido tú."
     : (n.confianza ?? 1) < UMBRAL_DUDOSA
       ? "La herramienta lo ha colocado con poca certeza."
-      : "Leído del reconocimiento.";
+      : "Leído del reconocimiento.")
+    + " Arrástralo para moverlo, o Alt + flechas para afinar.";
 
   ficha.append(fila, sugerencias, nota);
   el.parentElement.appendChild(ficha);
@@ -308,6 +404,18 @@ function abrirFicha(pagina, n, el) {
     if (e.key === "Enter") { e.preventDefault(); aplicar(); }
     if (e.key === "Escape") { e.preventDefault(); cerrarFicha(); }
     if (e.key === "Delete" && !campo.value) quitar();
+    // Ajuste fino sin ratón: un punto por pulsación, diez con Mayúsculas.
+    const paso = e.shiftKey ? 10 : 1;
+    const flechas = { ArrowLeft: [-paso, 0], ArrowRight: [paso, 0],
+                      ArrowUp: [0, -paso], ArrowDown: [0, paso] };
+    if (flechas[e.key] && (e.altKey || e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      n.x = Math.min(Math.max(n.x + flechas[e.key][0], 0), pagina.ancho_pt);
+      n.y = Math.min(Math.max(n.y + flechas[e.key][1], 0), pagina.alto_pt);
+      n.a_mano = true;
+      refrescar(pagina, n);
+      marcarSucio();
+    }
   });
   campo.addEventListener("blur", () => setTimeout(() => {
     if (ficha && ficha.contains(document.activeElement)) return;
