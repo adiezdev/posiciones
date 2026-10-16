@@ -9,7 +9,8 @@ todo lo que la máquina ha creído ver:
   naranja     pentagramas que encuentra la detección libre cuando la
               detección estricta falla: si el número no cuadra, la página
               entera cae a modo degradado y ahí empiezan los problemas
-  azul        cabezas de nota reconocidas por su glifo de texto
+  azul        cabezas de nota reconocidas (por glifo, por el .omr o
+              mirando la imagen; la cabecera dice de dónde salen)
   rojo        número estampado
   turquesa    número reajustado a la cabeza que tenía al lado (con flecha
               desde donde lo había puesto el OMR)
@@ -263,6 +264,21 @@ def _caja(lienzo, punto, x1, y1, x2, y2) -> None:
     _recta(lienzo, punto, x1, y2, x1, y1)
 
 
+def _banda(lienzo, punto, x1, y1, x2, y2) -> None:
+    """Un rectángulo blanco translúcido para que el texto se lea encima."""
+    esquinas = [punto(x1, y1), punto(x2, y1), punto(x2, y2), punto(x1, y2)]
+    p = lienzo.beginPath()
+    p.moveTo(*esquinas[0])
+    for e in esquinas[1:]:
+        p.lineTo(*e)
+    p.close()
+    lienzo.saveState()
+    lienzo.setFillColorRGB(1, 1, 1)
+    lienzo.setFillAlpha(0.88)
+    lienzo.drawPath(p, stroke=0, fill=1)
+    lienzo.restoreState()
+
+
 def _texto(lienzo, punto, x, y, texto, cuerpo=5.0, giro_texto=0.0) -> None:
     px, py = punto(x, y)
     lienzo.saveState()
@@ -298,13 +314,18 @@ def _pintar_pagina(lienzo, punto, ficha: dict, verdad: List[dict],
             _caja(lienzo, punto, izq, sup, der, inf)
         lienzo.setDash()
 
-    # --- cabezas reconocidas por glifo -------------------------------------
-    cabezas = ficha.get("cabezas_texto")
+    # --- cabezas reconocidas ------------------------------------------------
+    cabezas = ficha.get("cabezas_usadas") or ficha.get("cabezas_texto")
     if cabezas:
-        lienzo.setFillColorRGB(*AZUL)
+        # El radio va con el tamaño del pentagrama: fijo en 0,8 pt eran
+        # invisibles y no había forma de saber si la detección funcionaba,
+        # que es la primera pregunta que uno le hace a este PDF.
+        radio = max(0.9, 0.22 * espacio)
+        lienzo.setStrokeColorRGB(*AZUL)
+        lienzo.setLineWidth(0.5)
         for hx, hy in cabezas:
             px, py = punto(hx, hy)
-            lienzo.circle(px, py, 0.8, stroke=0, fill=1)
+            lienzo.circle(px, py, radio, stroke=1, fill=0)
 
     # --- la verdad ---------------------------------------------------------
     if verdad:
@@ -343,25 +364,36 @@ def _pintar_pagina(lienzo, punto, ficha: dict, verdad: List[dict],
     from collections import Counter
     cuenta = Counter(n["estado"] for n in ficha.get("notas", []))
     resumen = "  ".join("%s=%d" % (k, v) for k, v in sorted(cuenta.items()))
-    cabecera = ("pág %d | sistemas esperados %s / detectados %d | medido %s "
-                "| espacio %.2fpt | giro %d | %s"
+    cabecera = ("pág %d | sistemas %s esperados / %d detectados | medido %s "
+                "| espacio %.2fpt | giro %d | cabezas: %s (%d) | %s"
                 % (ficha["pagina"], ficha.get("sistemas_esperados"),
-                   len(pents), ficha.get("medido"), espacio, giro, resumen))
+                   len(pents), ficha.get("medido"), espacio, giro,
+                   ficha.get("origen_cabezas", "?"), len(cabezas or []),
+                   resumen))
+    # Sobre fondo blanco: antes se superponía al título de la partitura y
+    # había que adivinar la mitad de los números.
+    _banda(lienzo, punto, 8, 6, ancho_pt - 8, 20)
     lienzo.setFillColorRGB(0.1, 0.1, 0.1)
-    _texto(lienzo, punto, 12, 14, cabecera, 6.0, giro_texto)
+    _texto(lienzo, punto, 12, 16, cabecera, 6.0, giro_texto)
 
     if leyenda:
         items = [(VERDE, "pentagrama detectado"),
-                 (NARANJA, "detección libre / sin cabeza"),
-                 (AZUL, "cabeza por glifo"),
+                 (NARANJA, "detección libre / número sin cabeza"),
+                 (AZUL, "cabeza de nota reconocida"),
                  (ROJO, "número puesto"),
-                 (TURQUESA, "número reajustado"),
+                 (TURQUESA, "número reajustado a su cabeza"),
                  (GRIS, "número descartado"),
                  (MAGENTA, "verdad")]
-        y = alto_pt - 10 - 7 * 7
+        # Arriba a la derecha y sobre fondo blanco. Abajo a la izquierda se
+        # comía el último sistema, que suele ser donde está el problema.
+        ancho_caja = 118.0
+        x0 = ancho_pt - ancho_caja - 8
+        y0 = 26.0
+        _banda(lienzo, punto, x0, y0, ancho_pt - 8, y0 + 7 * len(items) + 5)
+        y = y0 + 9
         for color, texto in items:
             lienzo.setFillColorRGB(*color)
-            _texto(lienzo, punto, 12, y, "■ " + texto, 5.5, giro_texto)
+            _texto(lienzo, punto, x0 + 4, y, "■ " + texto, 5.0, giro_texto)
             y += 7
 
 

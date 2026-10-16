@@ -46,6 +46,23 @@ MEDIA_CABEZA = 6.5
 PASOS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 LETRAS = "CDEFGAB"
 
+# Cómo se reconoce una cabeza de nota entre los glifos de texto del PDF:
+# por su tamaño, sin mirar el nombre de la fuente.
+#
+# El techo de alto estaba en 1,35 espacios y dejaba fuera las redondas. En
+# una partitura de Capella (fuente Anastasia) la cabeza negra y la blanca
+# miden 1,18 espacios de alto, pero la redonda mide 1,62: se quedaba sin
+# reconocer, y su número no se podía comprobar ni reajustar contra la
+# cabeza. En "¡A la Gloria!" eran exactamente las seis redondas de la
+# partitura las seis cifras que salían sin confirmar.
+#
+# El suelo de proporción baja de 0,60 a 0,50 por lo mismo: la redonda de
+# Anastasia tiene una caja de 0,61 y pasaba por los pelos.
+CABEZA_ALTO_MIN = 0.72      # en espacios de pentagrama
+CABEZA_ALTO_MAX = 1.75
+CABEZA_RAZON_MIN = 0.50     # ancho / alto de la caja del glifo
+CABEZA_RAZON_MAX = 1.90
+
 # Nota de referencia de cada clave y en qué línea se apoya, contando la de
 # abajo como la 1. El índice es diatónico: octava * 7 + grado, con Do = 0.
 #   sol en 2ª -> Sol4 ; fa en 4ª -> Fa3 ; do en 4ª (tenor) -> Do4
@@ -1413,9 +1430,10 @@ def _cabezas_texto(pdf: Path, indice: int, giro: int, ancho_pt: float,
         for i in range(tp.count_chars()):
             b = tp.get_charbox(i)
             w, h = b[2] - b[0], b[3] - b[1]
-            if h <= 0 or h < 0.72 * espacio or h > 1.35 * espacio:
+            if h <= 0 or not (CABEZA_ALTO_MIN * espacio <= h
+                              <= CABEZA_ALTO_MAX * espacio):
                 continue
-            if not 0.6 <= w / h <= 1.9:
+            if not CABEZA_RAZON_MIN <= w / h <= CABEZA_RAZON_MAX:
                 continue
             buf = ctypes.create_string_buffer(128)
             flg = ctypes.c_int()
@@ -1474,9 +1492,10 @@ def _alfabeto_de_cabezas(doc, pagina: int, espacio: float) -> set:
         for i in range(tp.count_chars()):
             b = tp.get_charbox(i)
             w, h = b[2] - b[0], b[3] - b[1]
-            if h <= 0 or not 0.72 * espacio <= h <= 1.35 * espacio:
+            if h <= 0 or not (CABEZA_ALTO_MIN * espacio <= h
+                              <= CABEZA_ALTO_MAX * espacio):
                 continue
-            if not 0.6 <= w / h <= 1.9:
+            if not CABEZA_RAZON_MIN <= w / h <= CABEZA_RAZON_MAX:
                 continue
             ch = tp.get_text_range(i, 1)
             if not ch or not ch.strip():
@@ -2329,6 +2348,14 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                     hx for hx, hy in (cabezas_pag or []) if arriba <= hy <= abajo)
             if ficha is not None:
                 ficha["origen_cabezas"] = origen_cabezas
+                # Las que se han usado para alinear, no solo las de texto:
+                # si vienen del .omr o de la imagen, el diagnóstico tiene
+                # que enseñar esas, que son las que han decidido.
+                if por_banda:
+                    usadas = [list(c) for v in por_banda.values() for c in v]
+                else:
+                    usadas = [list(c) for c in (cabezas_pag or [])]
+                ficha["cabezas_usadas"] = usadas
 
             if ficha is not None:
                 ficha.update({
