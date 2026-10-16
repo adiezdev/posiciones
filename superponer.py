@@ -45,9 +45,6 @@ MEDIA_CABEZA = 6.5
 
 PASOS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 
-# Si falta la coordenada de más de esta fracción de notas, no merece la pena.
-TOLERANCIA_SIN_COORDENADA = 0.40
-
 
 @dataclass
 class Marca:
@@ -354,7 +351,11 @@ def preparar(ruta_musicxml, transpositor: bool = False,
             if not grupo:
                 return
             mejor = max(grupo, key=lambda r: r["midi"])
-            mejor["dx"] = grupo[0]["dx"]
+            # La x del acorde es la de su cabeza principal; si esa no traía
+            # coordenada nos quedamos con la de la nota elegida en vez de
+            # perderla y tener que interpolarla después.
+            if grupo[0]["dx"] is not None:
+                mejor["dx"] = grupo[0]["dx"]
             registros.append(mejor)
             grupo.clear()
 
@@ -406,8 +407,20 @@ def preparar(ruta_musicxml, transpositor: bool = False,
                 if dx is None:
                     sin_coordenada += 1
 
+                # Ligaduras: mover la vara dentro del mismo armónico ligando
+                # suena a glissando. La vía "redibujar" ya lo evitaba; esta
+                # no se enteraba.
+                nots = hijo.find("notations")
+                ligada = False
+                if nots is not None:
+                    ligada = any(
+                        e.get("type") in ("stop", "continue")
+                        for e in list(nots.findall("slur"))
+                        + list(nots.findall("tied")))
+
                 grupo.append({
                     "midi": midi,
+                    "ligada": ligada,
                     "offset": offset,
                     "duracion": duracion,
                     "pagina": pagina,
@@ -426,12 +439,17 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     if not registros:
         return None
 
+    # Con varias voces, <backup> hace retroceder el reloj y los registros
+    # quedan en orden de documento, no de lectura. Reordenamos antes de
+    # interpolar coordenadas y antes de resolver la secuencia de posiciones:
+    # si no, el Viterbi encadena notas que no van seguidas y la interpolación
+    # de dx cruza de una voz a otra.
+    registros.sort(key=lambda r: (r["pagina"], r["sistema"], r["offset"]))
+
+    sin_coordenada = sum(1 for r in registros if r["dx"] is None)
     _rellenar_dx(registros)
-    utiles = [r for r in registros if r["dx"] is not None]
-    if not utiles:
+    if all(r["dx"] is None for r in registros):
         return None
-    # No descartamos por falta de coordenadas: rellenamos por interpolación
-    pass
 
     # Altura de los números: en la parte baja del hueco hasta el sistema
     # siguiente, medido de verdad en lugar de a ojo.
@@ -513,7 +531,8 @@ def preparar(ruta_musicxml, transpositor: bool = False,
             registros.insert(ancla, g)
 
     elegidas = elegir_posiciones(
-        [Nota(midi=r["midi"], offset=r["offset"], duracion=r["duracion"])
+        [Nota(midi=r["midi"], offset=r["offset"], duracion=r["duracion"],
+              ligada=bool(r.get("ligada")))
          for r in registros],
         transpositor, preferir_cercanas, peso_movimiento)
 
@@ -534,7 +553,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         alto_pagina=alto_pagina,
         mm_por_decimo=mm_por_decimo,
         espacio_decimos=10.0,
-        sin_coordenada=len(registros) - len(utiles),
+        sin_coordenada=sin_coordenada,
         total=len(registros),
         modo_x=modo,
         acierto=acierto,
@@ -705,6 +724,9 @@ def _a_pentagramas(lineas: List[float]) -> List[Tuple[float, float]]:
     return salida
 
 
+_CACHE_PENT: Dict[tuple, List[Tuple[float, float, float, float]]] = {}
+
+
 def detectar_pentagramas(pdf: Path, indice: int, alto_pt: float,
                          esperados: Optional[int] = None,
                          dpi: int = 150) -> List[Tuple[float, float, float, float]]:
@@ -717,6 +739,12 @@ def detectar_pentagramas(pdf: Path, indice: int, alto_pt: float,
     partitura a otra. Si sabemos cuántos sistemas esperamos, nos quedamos con
     la combinación que dé ese número exacto.
     """
+    # Esto se llamaba dos veces por página (una desde _fantasmas y otra
+    # desde estampar), renderizando y probando 18 combinaciones cada vez.
+    clave = (str(pdf), indice, round(alto_pt, 2), esperados, dpi)
+    if clave in _CACHE_PENT:
+        return _CACHE_PENT[clave]
+
     try:
         import numpy as np
         import pypdfium2 as pdfium
@@ -745,17 +773,20 @@ def detectar_pentagramas(pdf: Path, indice: int, alto_pt: float,
             if not p:
                 continue
             if esperados is not None and len(p) == esperados:
-                return [(sup, inf) + _extremos(a, int(sup * px_por_pt),
-                                               int(inf * px_por_pt), px_por_pt)
-                        for sup, inf in p]
+                hallado = [(sup, inf) + _extremos(a, int(sup * px_por_pt),
+                                                  int(inf * px_por_pt), px_por_pt)
+                           for sup, inf in p]
+                _CACHE_PENT[clave] = hallado
+                return hallado
             candidatos.append(
                 [(sup, inf) + _extremos(a, int(sup * px_por_pt),
                                         int(inf * px_por_pt), px_por_pt)
                  for sup, inf in p])
 
-    if esperados is not None:
-        return []
-    return candidatos[0] if candidatos else []
+    hallado = ([] if esperados is not None
+               else (candidatos[0] if candidatos else []))
+    _CACHE_PENT[clave] = hallado
+    return hallado
 
 
 # --- notas que el OMR se comió ----------------------------------------------
@@ -912,8 +943,17 @@ def _cabezas(a, sup: float, inf: float, izq: float, der: float,
     return salidas
 
 
-def _texto_pagina(lector, pagina: int, alto_pt: float) -> List[Tuple[float, float, str]]:
-    """[(x, y, run)] en puntos (y de arriba abajo) del texto de una página."""
+def _texto_pagina(lector, pagina: int, alto_pt: float,
+                  orig_x: float = 0.0, cima: Optional[float] = None
+                  ) -> List[Tuple[float, float, str]]:
+    """[(x, y, run)] en puntos (y de arriba abajo) del texto de una página.
+
+    `orig_x` y `cima` son los bordes izquierdo y superior de la caja que se
+    recorta al mostrar: las coordenadas salen relativas a ella, que es la que
+    se renderiza y sobre la que medimos los pentagramas.
+    """
+    if cima is None:
+        cima = alto_pt
     salida: List[Tuple[float, float, str]] = []
     try:
         def _vis(texto, cm, tm, fd, fs):
@@ -921,7 +961,7 @@ def _texto_pagina(lector, pagina: int, alto_pt: float) -> List[Tuple[float, floa
                 return
             x = cm[0] * tm[4] + cm[2] * tm[5] + cm[4]
             y = cm[1] * tm[4] + cm[3] * tm[5] + cm[5]
-            salida.append((x, alto_pt - y, texto.strip()))
+            salida.append((x - orig_x, cima - y, texto.strip()))
 
         lector.pages[pagina].extract_text(visitor_text=_vis)
     except Exception:  # noqa: BLE001
@@ -1028,7 +1068,7 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
             if not en_pagina:
                 continue
             pag = lector.pages[pagina]
-            caja = pag.mediabox
+            caja = pag.cropbox or pag.mediabox
             ancho_pt, alto_pt = float(caja.width), float(caja.height)
             rotado = int(pag.get("/Rotate") or 0) % 180 == 90
             if rotado:
@@ -1037,7 +1077,9 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
             # Texto visible: sirve para vetar silencios, cifras y demás blobs
             # que se parecen a una cabeza. Con rotación no traducimos bien las
             # coordenadas y dejamos el comportamiento de antes.
-            glifos = [] if rotado else _texto_pagina(lector, pagina, alto_pt)
+            glifos = [] if rotado else _texto_pagina(
+                lector, pagina, alto_pt,
+                float(caja.left), float(caja.top))
 
             pent = detectar_pentagramas(pdf, pagina, alto_pt,
                                         esperados=len(en_pagina))
@@ -1296,9 +1338,14 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
         giro = int(pagina.get("/Rotate") or 0) % 360
 
         if marcas:
-            caja = pagina.mediabox
+            # pypdfium2 renderiza la CropBox, no la MediaBox. Si el PDF trae
+            # las dos distintas (recortes de escaneo, imposición) medíamos
+            # sobre una y dibujábamos sobre la otra, y todo salía corrido.
+            caja = pagina.cropbox or pagina.mediabox
             ancho_caja = float(caja.width)
             alto_caja = float(caja.height)
+            orig_x = float(caja.left)
+            orig_y = float(caja.bottom)
 
             # Muchos PDF guardan la página en vertical y le ponen /Rotate para
             # que el visor la muestre apaisada. Todo el cálculo se hace sobre
@@ -1373,15 +1420,26 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                     x = izq + (m.x - origen) * factor
                 else:
                     x = m.x * fx
-                if cabeceas is not None:
-                    banda = banda_pent.get(m.sistema)
-                    if banda and not any(
-                            abs(hx - x) <= max(3.0, 0.9 * espacio)
-                            and banda[0] - 2.0 * espacio
-                            <= hy
-                            <= banda[1] + 4.0 * espacio
-                            for hx, hy in cabeceas):
-                        continue    # no hay nota aquí: no estampamos
+                banda = banda_pent.get(m.sistema)
+                if cabeceas is not None and banda:
+                    cerca = [hx for hx, hy in cabeceas
+                             if banda[0] - 2.0 * espacio <= hy
+                             <= banda[1] + 4.0 * espacio
+                             and abs(hx - x) <= max(3.0, 2.5 * espacio)]
+                    if cerca:
+                        # Reajuste fino: la cabeza dibujada manda sobre la
+                        # coordenada reconstruida, que acumula error compás a
+                        # compás. Solo si está razonablemente cerca.
+                        mejor_hx = min(cerca, key=lambda hx: abs(hx - x))
+                        if abs(mejor_hx - x) <= 1.2 * espacio:
+                            x = mejor_hx
+                    elif m.estimada:
+                        # Nota que solo existía en la imagen y que ahora no
+                        # aparece: era un falso positivo.
+                        continue
+                    # Una nota leída del MusicXML SIEMPRE se estampa. Que no
+                    # encontremos su cabeza es un fallo de nuestra detección
+                    # de glifos, no una razón para comerse la nota.
                 colocadas.append((m, x))
 
             # Dos cifras en el mismo punto (una leída y otra estimada) o tres
@@ -1415,6 +1473,10 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                     x_hoja, y_hoja = y_vista, alto_caja - x_vista
                 else:
                     x_hoja, y_hoja = x_vista, y_vista
+                # La caja recortada puede no empezar en (0,0); el espacio de
+                # usuario del PDF es común a toda la página.
+                x_hoja += orig_x
+                y_hoja += orig_y
 
                 lienzo.saveState()
                 lienzo.translate(x_hoja, y_hoja)

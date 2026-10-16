@@ -101,6 +101,14 @@ def _guardar(tid: str, **cambios) -> dict:
 
 # --- procesos externos ------------------------------------------------------
 
+def _compases(ruta: Path) -> int:
+    """Cuántos compases trae un export, para elegir el más completo."""
+    try:
+        return len(partitura.cargar(ruta).getroot().findall(".//measure"))
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def _correr(cmd: list, timeout: int, etiqueta: str) -> None:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
@@ -136,7 +144,16 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
                 "No se ha reconocido ninguna partitura en el PDF. "
                 "Comprueba que el archivo contiene música escrita y no solo texto o imágenes.")
 
-        crudo = encontrados[0]
+        # Audiveris parte los libros grandes en varias hojas y exporta una por
+        # hoja. Quedarse con la primera alfabética se comía el resto de la
+        # partitura sin decir nada. Nos quedamos con la más completa y lo
+        # avisamos para que se note que ha pasado.
+        crudo = max(encontrados, key=_compases)
+        if len(encontrados) > 1:
+            _guardar(tid, exportes=len(encontrados), aviso_exportes=(
+                f"Audiveris ha partido el PDF en {len(encontrados)} hojas y "
+                f"solo se ha procesado la más larga ({crudo.name}). "
+                "Las demás se han quedado sin números."))
 
         # --- Vía A: estampar sobre el PDF original, sin redibujar nada ---
         if mantener_original:
