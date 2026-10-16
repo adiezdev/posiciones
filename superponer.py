@@ -1445,6 +1445,61 @@ def _cabezas_texto(pdf: Path, indice: int, giro: int, ancho_pt: float,
     return salida
 
 
+def _alfabeto_de_cabezas(doc, pagina: int, espacio: float) -> set:
+    """
+    Qué caracteres dibujan las cabezas de nota en esta página.
+
+    Se agrupan los glifos por fuente quedándose con los que tienen pinta de
+    cabeza —alto de un espacio de pentagrama, más o menos cuadrados— y gana
+    la fuente que más acumule, que es la de música. Los silencios, las
+    cifras de compás y las alteraciones son altos y estrechos, y las letras
+    del texto no dan esa proporción, así que se caen solas.
+    """
+    if espacio <= 0:
+        return set()
+    try:
+        import ctypes
+
+        from pypdfium2 import raw as _raw
+    except ImportError:
+        return set()
+
+    try:
+        tp = doc[pagina].get_textpage()
+    except Exception:  # noqa: BLE001
+        return set()
+
+    por_fuente: Dict[str, Counter] = {}
+    try:
+        for i in range(tp.count_chars()):
+            b = tp.get_charbox(i)
+            w, h = b[2] - b[0], b[3] - b[1]
+            if h <= 0 or not 0.72 * espacio <= h <= 1.35 * espacio:
+                continue
+            if not 0.6 <= w / h <= 1.9:
+                continue
+            ch = tp.get_text_range(i, 1)
+            if not ch or not ch.strip():
+                continue
+            buf = ctypes.create_string_buffer(128)
+            flg = ctypes.c_int()
+            _raw.FPDFText_GetFontInfo(tp.raw, i, buf, 128, ctypes.byref(flg))
+            fuente = buf.value.decode("latin1", "replace")
+            por_fuente.setdefault(fuente, Counter())[ch] += 1
+    except Exception:  # noqa: BLE001
+        return set()
+    finally:
+        try:
+            tp.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    buenas = [c for c in por_fuente.values() if sum(c.values()) >= 12]
+    if not buenas:
+        return set()
+    return set(max(buenas, key=lambda c: sum(c.values())))
+
+
 def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                sistemas: List[dict],
                sistemas_pagina: Dict[int, List[int]],
@@ -1501,31 +1556,22 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
             escala_y = a.shape[0] / alto_pt
             fx = ancho_pt / ancho_pagina
 
-            # Alfabeto de cabeza de toda la página: glifos de fuente musical
-            # con alto ~un espacio (œ, ˙, w...). Una cabeza que en su sistema
-            # no cae junto a ninguna nota del OMR se reconocía mal; aquí se
-            # reconoce igual. Fuente + alto evitan colar letras, silencios
-            # (altos y estrechos) y alteraciones.
-            forma: set = set()
-            try:
-                import ctypes
-                from pypdfium2 import raw as _raw
-                tp_txt = doc[pagina].get_textpage()
-                for i in range(tp_txt.count_chars()):
-                    ch = tp_txt.get_text_range(i, 1)
-                    if ch in forma or not ch.strip():
-                        continue
-                    b = tp_txt.get_charbox(i)
-                    buf = ctypes.create_string_buffer(128)
-                    flg = ctypes.c_int()
-                    _raw.FPDFText_GetFontInfo(tp_txt.raw, i, buf, 128,
-                                              ctypes.byref(flg))
-                    if "Opus" in buf.value.decode("latin1", "replace") \
-                            and 4.3 <= b[3] - b[1] <= 6.3:
-                        forma.add(ch)
-                tp_txt.close()
-            except Exception:  # noqa: BLE001
-                forma = set()
+            # Alfabeto de cabeza de toda la página: qué caracteres se usan
+            # para dibujar las cabezas de nota (œ, ˙, w... según la fuente).
+            #
+            # Antes esto exigía que la fuente se llamara "Opus" y que el
+            # glifo midiera entre 4,3 y 6,3 puntos. Opus es la de Sibelius:
+            # con MuseScore, Finale o Dorico la lista salía vacía, y con un
+            # pentagrama de otro tamaño también. Sin esa lista no hay forma
+            # de saber cuántas notas hay dibujadas, y entonces el rescate se
+            # inventa duplicados sobre notas que ya tenían su número.
+            #
+            # Ahora no se mira el nombre de nada: una cabeza es un glifo tan
+            # alto como un espacio de pentagrama y más o menos cuadrado, y
+            # la fuente buena es la que más acumula. Vale para cualquier
+            # editor y cualquier tamaño de pentagrama.
+            espacio_pag = ((pent[0][1] - pent[0][0]) / 4.0) if pent else 0.0
+            forma: set = _alfabeto_de_cabezas(doc, pagina, espacio_pag)
 
             for k, s in enumerate(en_pagina):
                 sup, inf, izq, der = pent[k]
@@ -1579,6 +1625,50 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                 cefalo = {r for r, n in cefalo.items() if n >= 2}
                 cefalo |= forma
 
+                # Antes de decidir qué nota falta, hay que poner las que ya
+                # tenemos donde de verdad están.
+                #
+                # Las coordenadas del OMR vienen de sumar anchos de compás y
+                # pueden estar corridas varios espacios. Comparar cabezas
+                # dibujadas contra coordenadas corridas hace que notas que SÍ
+                # tienen número parezcan olvidadas: se les añade otro y salen
+                # dos cifras pegadas sobre la misma nota. Y encima esos
+                # duplicados descuadran la cuenta que luego necesita el
+                # estampado para emparejar números y cabezas uno a uno, así
+                # que el desajuste original tampoco se corrige. Un fallo
+                # alimentando al otro.
+                #
+                # El desplazamiento se estima con las cabezas reconocidas por
+                # la fuente y el tamaño del glifo, que es lo único que no
+                # depende de dónde creamos que están las notas.
+                referencia = sorted(
+                    gx for gx, gy, run in glifos
+                    if run in forma and sup - 3.5 * espacio <= gy
+                    <= inf + 3.5 * espacio)
+                # Solo la lista por fuente está completa: es todo lo que hay
+                # dibujado con el glifo de cabeza. La detección por imagen
+                # devuelve candidatos sueltos, así que sirve para estimar el
+                # corrimiento pero no para contar.
+                completa = bool(referencia)
+                if not referencia:
+                    referencia = sorted(cx for cx, _cy, _a in cabezas)
+                corrimiento = _desplazamiento_comun(
+                    [nx for nx, _ in xs], referencia, espacio)
+                if corrimiento:
+                    xs = [(nx + corrimiento, i) for nx, i in xs]
+
+                # No puede haber más notas olvidadas que la diferencia entre
+                # las cabezas dibujadas y las notas leídas. Si hay tantas
+                # cabezas como notas, no falta ninguna por definición, y
+                # cualquier "hallazgo" es una nota que ya tiene su número
+                # con la coordenada corrida. Contar es más de fiar que
+                # comparar distancias cuando las distancias son el problema.
+                tope = None
+                if completa and len(referencia) >= len(xs):
+                    tope = len(referencia) - len(xs)
+                    if tope == 0:
+                        continue
+
                 # Cabezas que el OMR no leyó pero sí están dibujadas: glifos de
                 # cabeza que no caen sobre ninguna nota del MusicXML. En pasajes
                 # densos (notas con plica unida) la detección por imagen se
@@ -1609,6 +1699,18 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                                for gx, gy, _ in glifos_cab)]
                 n_px = len(cabezas)
                 cabezas = cabezas + glifos_cab
+
+                # Los candidatos más lejanos de cualquier nota ya leída son
+                # los que más pinta tienen de ser notas olvidadas de verdad,
+                # así que si hay tope se gastan en ellos primero.
+                if tope is not None and xs:
+                    orden = sorted(
+                        range(len(cabezas)),
+                        key=lambda k: -min(abs(cabezas[k][0] - nx)
+                                           for nx, _ in xs))
+                    cabezas = [cabezas[k] for k in orden]
+                    n_px = sum(1 for k in orden if k < n_px)
+                por_sistema: List[float] = []
 
                 for n, (cx, cy, ancho) in enumerate(cabezas):
                     de_glifo = n >= n_px
@@ -1669,6 +1771,10 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                         continue
                     midi += semitonos
                     x = tramo[0] + (cx - izq) / factor if factor else cx / fx
+                    if tope is not None:
+                        if len(por_sistema) >= tope:
+                            continue
+                        por_sistema.append(cx)
                     salida.append((ancla, {
                         "midi": midi,
                         "midi_escrito": midi - semitonos,
@@ -1684,6 +1790,7 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                         "x": x,
                         "estimada": True,
                     }))
+            # Fin del bucle de sistemas de esta página.
     finally:
         doc.close()
 

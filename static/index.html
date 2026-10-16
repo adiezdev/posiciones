@@ -531,6 +531,7 @@ function pintar(t) {
       <div class="acciones">
         <a class="boton" href="/api/trabajos/${t.id}/pdf">Descargar el PDF</a>
         ${t.revisable ? `<a class="boton" href="/revisar?id=${t.id}">Repasar los números</a>` : ""}
+        ${t.revisable ? `<a class="boton secundario" href="/api/trabajos/${t.id}/diagnostico" title="PDF con lo que ha visto la máquina: pentagramas, cabezas y de dónde sale cada número">Diagnóstico</a>` : ""}
         <a class="boton secundario" href="/api/trabajos/${t.id}/musicxml">Descargar MusicXML</a>
         <button class="boton secundario" data-borrar="${t.id}">Borrar</button>
       </div>

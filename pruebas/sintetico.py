@@ -135,6 +135,7 @@ class Caso:
                  borde_negro: bool = False, dpi_omr: int = 300,
                  clave: str = "fa", transposicion: str = "ninguna",
                  cabezas_texto: bool = False, ancho_roto: float = 0.0,
+                 sin_notas: float = 0.0,
                  inclinar: float = 0.0,
                  dpi_escaneo: int = 300, semilla: int = 7):
         self.paginas = paginas
@@ -149,6 +150,7 @@ class Caso:
         self.clave = clave
         self.cabezas_texto = cabezas_texto
         self.ancho_roto = ancho_roto
+        self.sin_notas = sin_notas
         self.inclinar = inclinar
         self.dpi_escaneo = dpi_escaneo
         self.transposicion = transposicion
@@ -291,6 +293,9 @@ class Caso:
                             "y_pt": y_cab * PT_POR_DECIMO,
                             # Audiveris a veces no da la coordenada.
                             "con_dx": self.azar.random() >= self.sin_dx,
+                            # Notas que estan dibujadas pero que el OMR no
+                            # llego a leer: no salen en el MusicXML.
+                            "leida": self.azar.random() >= self.sin_notas,
                         })
                         tiempo += dur
                         n += 1
@@ -507,6 +512,8 @@ class Caso:
                         # la herramienta se las arregle con la clave.
 
                     for nota in por_compas[numero - 1]:
+                        if not nota["leida"]:
+                            continue
                         atrs = {}
                         if nota["con_dx"]:
                             atrs["default-x"] = "%.2f" % nota["dx"]
@@ -676,6 +683,8 @@ def main() -> None:
                     help="todo negras y repartido por igual (prueba fácil)")
     ap.add_argument("--borde-negro", action="store_true",
                     help="franja negra de escáner que rompe la detección por umbral")
+    ap.add_argument("--sin-notas", type=float, default=0.0, metavar="FRAC",
+                    help="fraccion de notas dibujadas que el OMR no leyo")
     ap.add_argument("--ancho-roto", type=float, default=0.0, metavar="FRAC",
                     help="fraccion de compases con el ancho mal en el MusicXML")
     ap.add_argument("--inclinar", type=float, default=0.0, metavar="GRADOS",
@@ -695,7 +704,7 @@ def main() -> None:
                 ritmo=not args.sin_ritmo, borde_negro=args.borde_negro,
                 clave=args.clave, transposicion=args.transposicion,
                 cabezas_texto=args.cabezas_texto, inclinar=args.inclinar,
-                ancho_roto=args.ancho_roto)
+                ancho_roto=args.ancho_roto, sin_notas=args.sin_notas)
     rutas = caso.generar(args.carpeta)
     print("%d notas, %d pentagramas, %d páginas"
           % (len(caso.notas), len(caso.pentagramas), caso.paginas))

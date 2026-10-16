@@ -36,6 +36,7 @@ from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 from music21 import converter
 
+import depurar
 import estilo
 import normalizar
 import omr
@@ -238,6 +239,7 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
                     titulo=titulo_manual.strip() or pdf_in.stem,
                     papel="el de tu PDF original",
                     base=pdf_in.name,
+                    musicxml=str(crudo.relative_to(d)),
                     revisable=True,
                     avisos=[{"gravedad": x.gravedad, "parte": x.parte,
                              "compas": str(x.compas), "texto": x.texto}
@@ -619,6 +621,44 @@ def _validar_hoja(hoja: dict, anterior: dict) -> dict:
         nueva["numeros"] = numeros
         salida.append(nueva)
     return {"version": anterior.get("version", 1), "paginas": salida}
+
+
+@app.get("/api/trabajos/{tid}/diagnostico")
+def diagnostico(tid: str):
+    """
+    El PDF de diagnóstico: lo que ha visto la máquina, pintado encima.
+
+    Pentagramas detectados, cabezas reconocidas, dónde ha ido cada número y
+    cuáles se han reajustado o descartado. Es lo que hay que mirar cuando
+    una partitura sale rara, y tenerlo a un clic evita pedirle a nadie que
+    se instale nada para poder enseñar qué está pasando.
+    """
+    datos = _leer(tid)
+    d = _dir(tid)
+    base = _base_pdf(tid, datos)
+    relativa = datos.get("musicxml")
+    xml = (d / relativa) if relativa else None
+    if xml is None or not xml.exists():
+        encontrados = sorted((d / "export").rglob("*.mxl"))             or sorted((d / "export").rglob("*.xml"))
+        if not encontrados:
+            raise HTTPException(
+                404, "De este trabajo no queda el reconocimiento, así que no "
+                     "se puede rehacer el diagnóstico.")
+        xml = max(encontrados, key=_compases)
+
+    analisis = depurar.analizar(base, xml, bool(datos.get("transpositor")),
+                                lectura=datos.get("lectura", "auto"))
+    tmp = Path(tempfile.mkdtemp(prefix="diag-"))
+    nombre = datos.get("titulo") or Path(datos.get("nombre", "partitura")).stem
+    salida = tmp / f"{_sanear(nombre)} (diagnostico).pdf"
+    if not analisis["ok"]:
+        raise HTTPException(
+            409, "El estampado no llegó a hacerse (%s), así que no hay nada "
+                 "que diagnosticar." % analisis["motivo"])
+    depurar.pintar(base, salida, analisis)
+    return FileResponse(salida, filename=salida.name,
+                        media_type="application/pdf",
+                        background=_borrar_luego(tmp))
 
 
 @app.get("/revisar")

@@ -81,6 +81,15 @@ BATERIA = [
     ("anchos-rotos-sin-cabezas", {"ancho_roto": 0.25}),
     ("anchos-rotos-con-omr", {"ancho_roto": 0.25, "cabezas_texto": True,
                               "_omr": True}),
+    # Audiveris se deja notas sin leer. El rescate por imagen tiene que
+    # recuperarlas sin inventarse duplicados.
+    ("notas-perdidas", {"sin_notas": 0.12, "cabezas_texto": True}),
+    # Y el caso de verdad: anchos mal Y notas sin leer a la vez. Los
+    # numeros salen corridos, el rescate ve cabezas "sin numero" donde si
+    # las hay y mete duplicados, y esos duplicados descuadran la cuenta
+    # que la alineacion necesita para emparejar una a una.
+    ("corridos-y-perdidas", {"ancho_roto": 0.25, "sin_notas": 0.12,
+                             "cabezas_texto": True}),
     ("escaneo-torcido", {"inclinar": 1.4, "paginas": 1}),
     ("escaneo-derecho", {"inclinar": 0.01, "paginas": 1}),
 ]
