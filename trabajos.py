@@ -164,4 +164,5 @@ def parametros(t: dict) -> dict:
         "criterio": t.get("criterio", "equilibrado"),
         "mantener_original": bool(t.get("mantener_original", False)),
         "lectura": t.get("lectura", "auto"),
+        "rescatar": bool(t.get("rescatar", False)),
     }

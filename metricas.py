@@ -94,6 +94,10 @@ BATERIA = [
     ("escaneo-derecho", {"inclinar": 0.01, "paginas": 1}),
 ]
 
+# Casos que miden el rescate de notas perdidas, que va apagado por
+# defecto porque en partituras reales solo anade numeros inventados.
+CON_RESCATE = {"notas-perdidas", "corridos-y-perdidas"}
+
 CABECERA = ("caso", "notas", "estamp", "cob%", "dud", "err_med",
             "err_p95", "ok%", "num%", "incl", "pent", "geom", "s")
 
@@ -107,6 +111,7 @@ def generar_bateria(destino: Path) -> List[Path]:
     for nombre, kwargs in BATERIA:
         kwargs = dict(kwargs)
         usar_omr = kwargs.pop("_omr", False)
+        kwargs.pop("_rescatar", None)
         carpeta = destino / nombre
         Caso(**kwargs).generar(carpeta)
         if not usar_omr:
@@ -158,7 +163,7 @@ def correr_audiveris(pdf: Path, destino: Path) -> Optional[Path]:
 
 
 def medir(carpeta: Path, con_omr: bool = False, con_debug: bool = False,
-          normalizar_antes: bool = True) -> dict:
+          normalizar_antes: bool = True, rescatar: bool = False) -> dict:
     """Mide un caso. Nunca lanza: un caso roto es un resultado, no un corte."""
     nombre = carpeta.name
     inicio = time.time()
@@ -186,7 +191,8 @@ def medir(carpeta: Path, con_omr: bool = False, con_debug: bool = False,
     omr_ruta = carpeta / "libro.omr"
     try:
         analisis = depurar.analizar(
-            pdf, xml, omr_ruta=omr_ruta if omr_ruta.exists() else None)
+            pdf, xml, omr_ruta=omr_ruta if omr_ruta.exists() else None,
+            rescatar=rescatar)
     except Exception as e:  # noqa: BLE001
         return {"caso": nombre, "ok": False,
                 "motivo": "excepcion:%s: %s" % (type(e).__name__, e)}
@@ -308,6 +314,8 @@ def main() -> None:
     ap.add_argument("--tolerancia", type=float, default=0.01)
     ap.add_argument("--omr", action="store_true",
                     help="llamar a Audiveris cuando falte el export")
+    ap.add_argument("--rescatar", action="store_true",
+                    help="encender el rescate de notas perdidas en todos los casos")
     ap.add_argument("--sin-normalizar", action="store_true",
                     help="no pasar por normalizar.py (para medir cuánto aporta)")
     ap.add_argument("--debug", action="store_true",
@@ -330,7 +338,8 @@ def main() -> None:
 
     try:
         filas = [medir(c, con_omr=args.omr, con_debug=args.debug,
-                       normalizar_antes=not args.sin_normalizar)
+                       normalizar_antes=not args.sin_normalizar,
+                       rescatar=args.rescatar or c.name in CON_RESCATE)
                  for c in carpetas]
     finally:
         if temporal and not args.debug:

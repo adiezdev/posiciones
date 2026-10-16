@@ -56,7 +56,7 @@ COLOR_ESTADO = {
 def analizar(pdf: Path, musicxml: Path, transpositor: bool = False,
              preferir_cercanas: bool = False, peso_movimiento=None,
              omr_ruta: Optional[Path] = None,
-             lectura: str = "auto") -> dict:
+             lectura: str = "auto", rescatar: bool = False) -> dict:
     """
     Corre el pipeline de estampado recogiendo todo lo que mide por el camino.
 
@@ -73,7 +73,7 @@ def analizar(pdf: Path, musicxml: Path, transpositor: bool = False,
     plano = superponer.preparar(partitura.cargar(musicxml), transpositor,
                                 preferir_cercanas, peso_movimiento,
                                 pdf=pdf, diag=diag_plano, libro_omr=libro,
-                                lectura=lectura)
+                                lectura=lectura, rescatar=rescatar)
     if plano is None:
         return {"ok": False, "motivo": diag_plano.get("motivo", "desconocido"),
                 "plano": None, "paginas": [], "resumen": {}}
@@ -98,6 +98,7 @@ def analizar(pdf: Path, musicxml: Path, transpositor: bool = False,
     resumen = _resumir(plano, paginas, estampadas, medido)
     resumen["dudosas"] = dudosas
     resumen["lectura"] = lectura
+    resumen["rescatar"] = rescatar
     resumen["semitonos"] = diag_plano.get("semitonos", 0)
     resumen["omr"] = libro is not None
     resumen["paginas_con_omr"] = sum(
@@ -411,6 +412,9 @@ def main() -> None:
                     help="volcar las medidas en JSON")
     ap.add_argument("--verdad", type=Path,
                     help="verdad.json de pruebas/sintetico.py")
+    ap.add_argument("--rescatar", action="store_true",
+                    help="inventar numeros donde parezca que el OMR se dejo "
+                         "una nota (apagado por defecto: mide mal en real)")
     ap.add_argument("--omr", type=Path,
                     help="el .omr que deja Audiveris con -save")
     ap.add_argument("--transpositor", action="store_true")
@@ -431,7 +435,8 @@ def main() -> None:
             print()
 
     analisis = analizar(args.pdf, args.musicxml, args.transpositor,
-                        omr_ruta=args.omr, lectura=args.lectura)
+                        omr_ruta=args.omr, lectura=args.lectura,
+                        rescatar=args.rescatar)
     if not analisis["ok"]:
         print("preparar() se ha rendido: %s" % analisis["motivo"])
         print("El trabajo habría caído a la vía de redibujar con MuseScore.")

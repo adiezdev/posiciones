@@ -203,7 +203,7 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
               orientacion: str, sin_reguladores: bool = True,
               etiqueta: str = "", criterio: str = "equilibrado",
               mantener_original: bool = False,
-              lectura: str = "auto") -> None:
+              lectura: str = "auto", rescatar: bool = False) -> None:
     d = DATOS / tid
     try:
         # Puede haberse cancelado mientras esperaba en la cola.
@@ -271,7 +271,7 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
             plano = superponer.preparar(partitura.cargar(crudo),
                                         transpositor, cercanas, peso,
                                         pdf=pdf_in, libro_omr=libro,
-                                        lectura=lectura)
+                                        lectura=lectura, rescatar=rescatar)
             if plano is not None:
                 _cancelaciones.comprobar(tid)
                 _guardar(tid, estado="generando")
@@ -461,6 +461,7 @@ async def crear(
     criterio: str = Form("equilibrado"),
     mantener_original: bool = Form(False),
     lectura: str = Form("auto"),
+    rescatar: bool = Form(False),
 ):
     nombre = _sanear(archivo.filename or "partitura.pdf")
     if not nombre.lower().endswith(".pdf"):
@@ -484,13 +485,13 @@ async def crear(
     _guardar(tid, id=tid, nombre=nombre, archivo=nombre, estado="en_cola",
              transpositor=transpositor, orientacion=orientacion,
              sin_reguladores=sin_reguladores,
-             criterio=criterio, lectura=lectura,
+             criterio=criterio, lectura=lectura, rescatar=rescatar,
              titulo_manual=titulo, etiqueta=etiqueta,
              mantener_original=mantener_original, creado=time.time(),
              intentos=0)
     _pool.submit(_trabajar, tid, transpositor, titulo, orientacion,
                  sin_reguladores, etiqueta, criterio,
-                 mantener_original, lectura)
+                 mantener_original, lectura, rescatar)
 
     return JSONResponse({"id": tid}, status_code=202)
 

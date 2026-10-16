@@ -494,7 +494,8 @@ def preparar(ruta_musicxml, transpositor: bool = False,
              pdf: Optional[Path] = None,
              diag: Optional[dict] = None,
              libro_omr=None,
-             lectura: str = "auto") -> Optional[Plano]:
+             lectura: str = "auto",
+             rescatar: bool = False) -> Optional[Plano]:
     """
     Recorre el MusicXML reconstruyendo la posición de cada nota en la página.
     Devuelve None si no hay coordenadas utilizables.
@@ -850,7 +851,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     # cualquier otra. Se estampan en gris, para distinguir lo leído de lo
     # estimado.
     por_pag = _por_pagina(sistemas)
-    if pdf is not None:
+    if pdf is not None and rescatar:
         for ancla, g in _fantasmas(pdf, registros, descansos, sistemas,
                                    por_pag, ancho_pagina, modo, semitonos):
             registros.insert(ancla, g)
@@ -1528,8 +1529,23 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
     Notas que están en el PDF pero no en el MusicXML.
 
     Devuelve [(índice donde insertar, registro)] ya ordenado para que quien
-    llame pueda insertarlos con `list.insert` sin renumerar nada. Si la
-    detección suena demasiado a falsos positivos, no devuelve nada.
+    llame pueda insertarlos con `list.insert` sin renumerar nada.
+
+    VA APAGADO POR DEFECTO, y conviene saber por qué. Medido sobre dos
+    partituras reales —una de Capella y otra de otro editor— Audiveris no
+    se había dejado ni una nota, así que este rescate no tenía nada que
+    rescatar: lo único que aportó fueron de cuatro a diez números
+    inventados por partitura, encima de cosas que no son notas.
+
+    El caso típico es el "3" de un tresillo. Es un glifo de la fuente
+    musical, mide como una cabeza y hasta cae en la rejilla de medios
+    espacios del pentagrama, así que no hay forma barata de distinguirlo
+    por su forma. Se le inventaba una nota al lado de otra que ya tenía su
+    número, y salían dos cifras pegadas.
+
+    Un número de más es peor que uno de menos: el que falta se ve, y se
+    añade en dos segundos en la pantalla de repaso; el que sobra se lee
+    como bueno y se toca. Por eso esto solo se enciende a petición.
     """
     try:
         import numpy as np
@@ -1675,6 +1691,10 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                     [nx for nx, _ in xs], referencia, espacio)
                 if corrimiento:
                     xs = [(nx + corrimiento, i) for nx, i in xs]
+                    # Los silencios salen del mismo MusicXML y arrastran el
+                    # mismo desvío: sin corregirlos, el veto de "aquí hay un
+                    # silencio" apunta al sitio equivocado.
+                    reposo = [rx + corrimiento for rx in reposo]
 
                 # No puede haber más notas olvidadas que la diferencia entre
                 # las cabezas dibujadas y las notas leídas. Si hay tantas
@@ -1708,6 +1728,11 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                         if any(abs(gx - nx) <= tol for nx, _ in xs):
                             continue    # ya lleva número
                         glifos_cab.append((gx, gy, 1.2 * espacio))
+                # Tinta con forma de cabeza, antes de que los glifos se
+                # coman los blobs que coinciden con ellos: es la prueba que
+                # se le pide a un glifo para poder inventar una nota.
+                blobs = [(c[0], c[1]) for c in cabezas]
+
                 # El glifo es prueba directa de una nota: si un blob de imagen
                 # cae justo encima, sobra (la plica o la barra lo desplazan y
                 # el blob acababa vetado, perdiendo la nota). Manda el glifo.
@@ -1742,9 +1767,22 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
                         continue
                     if any(abs(cx - nx) < 0.8 * espacio for nx, _ in xs):
                         continue    # ya lleva número
-                    if not de_glifo and any(abs(cx - rx) < 0.8 * espacio
-                                            for rx in reposo):
+                    # Donde el OMR leyó un silencio no hay nota, venga el
+                    # candidato de un blob de imagen o de un glifo. Antes
+                    # esto solo se comprobaba para los blobs, y los glifos
+                    # se colaban enteros.
+                    if any(abs(cx - rx) < 0.8 * espacio for rx in reposo):
                         continue    # hay un silencio ahí: no es una nota
+                    # Para INVENTAR una nota no basta con el glifo: tiene
+                    # que haber también tinta con forma de cabeza. Un "3"
+                    # de tresillo es un glifo de la fuente musical del
+                    # tamaño de una cabeza, pero dibujado es un trazo fino
+                    # y la detección por imagen no lo confunde.
+                    if de_glifo and blobs and not any(
+                            abs(cx - bx) <= 1.0 * espacio
+                            and abs(cy - by) <= 1.2 * espacio
+                            for bx, by in blobs):
+                        continue
                     # Si hay texto en la imagen, el blob tiene que llevar al
                     # lado un glifo de cabeza; si solo hay silencio/cifra es
                     # tinta de esas y no una nota olvidada.
