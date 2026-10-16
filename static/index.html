@@ -273,20 +273,6 @@
     font-size: 0.9rem;
   }
 
-  #toast {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0,0,0,0.85);
-    color: #fff;
-    padding: 10px 16px;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    display: none;
-    z-index: 1000;
-  }
-  #toast.show { display: block; }
   .ayuda {
     margin: 6px 0 0;
     color: var(--tinta-media);
@@ -403,6 +389,7 @@
   </footer>
 </main>
 
+<script src="/static/version.js"></script>
 <script>
 const ETAPAS = {
   en_cola:      { texto: "En cola",                 marca: 0 },
@@ -592,26 +579,15 @@ ajustarCampos();
 
 refrescar();
 
-let currentVersion = null;
-async function checkVersion() {
-  try {
-    const r = await fetch("/api/version?t=" + Date.now());
-    if (!r.ok) return;
-    const d = await r.json();
-    if (currentVersion === null) {
-      currentVersion = d.version;
-      return;
-    }
-    if (d.version && d.version !== currentVersion) {
-      const t = document.getElementById("toast");
-      if (t) t.classList.add("show");
-      setTimeout(() => window.location.reload(), 2500);
-    }
-  } catch (e) {}
-}
-checkVersion();
-setInterval(checkVersion, 10000);
+// El NAS se actualiza solo, así que una pestaña abierta se queda con la
+// versión vieja sin enterarse. Aquí sí se puede recargar sola: lo único
+// que se perdería es el formulario a medio rellenar, y por eso se avisa
+// con cuenta atrás y se puede cancelar. Los trabajos viven en el servidor.
+VigilarVersion.iniciar({
+  hayCambios: () => Boolean(
+    (fichero.files && fichero.files.length)
+    || titulo.value.trim() || etiqueta.value.trim()),
+});
 </script>
-  <div id="toast">Nueva versión disponible. Recarga la página.</div>
 </body>
 </html>

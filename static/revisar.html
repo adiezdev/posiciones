@@ -131,6 +131,7 @@
 <main id="contenido"><p class="cargando">Cargando la partitura…</p></main>
 <div class="barra-estado" id="aviso"></div>
 
+<script src="/static/version.js"></script>
 <script>
 // Las posiciones que existen en el instrumento. Se ofrecen como atajo al
 // corregir, pero el campo es libre: si alguien quiere escribir otra cosa,
@@ -497,6 +498,13 @@ $("#descargar").addEventListener("click", () => {
 
 window.addEventListener("beforeunload", (e) => {
   if (sucio) { e.preventDefault(); e.returnValue = ""; }
+});
+
+// Aquí una recarga automática se llevaría las correcciones por delante,
+// así que con cambios sin guardar el aviso espera y ofrece guardar antes.
+VigilarVersion.iniciar({
+  hayCambios: () => sucio,
+  guardar: guardar,
 });
 
 // --- arranque ---------------------------------------------------------------
