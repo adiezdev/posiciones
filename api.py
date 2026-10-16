@@ -30,7 +30,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
@@ -212,8 +212,16 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
             if plano is not None:
                 _guardar(tid, estado="generando")
                 pdf_out = d / "resultado.pdf"
+                diag_paginas: list = []
                 puestas, medido, dudosas = superponer.estampar(
-                    pdf_in, pdf_out, plano)
+                    pdf_in, pdf_out, plano, diag=diag_paginas)
+
+                # La hoja de marcas es lo que hace posible repasar a mano:
+                # los números ya resueltos, en puntos de la página tal como
+                # se ve. Corregir uno no obliga a rehacer nada de lo demás.
+                hoja = superponer.hoja_de_marcas(diag_paginas)
+                (d / "marcas.json").write_text(
+                    json.dumps(hoja, ensure_ascii=False), encoding="utf-8")
 
                 score = converter.parse(str(crudo))
                 avisos = validar(score, transpositor, semitonos)
@@ -229,6 +237,8 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
                     fuera_rango=max(plano.total - puestas, 0),
                     titulo=titulo_manual.strip() or pdf_in.stem,
                     papel="el de tu PDF original",
+                    base=pdf_in.name,
+                    revisable=True,
                     avisos=[{"gravedad": x.gravedad, "parte": x.parte,
                              "compas": str(x.compas), "texto": x.texto}
                             for x in avisos],
@@ -490,6 +500,130 @@ def borrar_terminados() -> dict:
 def borrar(tid: str) -> dict:
     shutil.rmtree(_dir(tid), ignore_errors=True)
     return {"borrado": tid}
+
+
+# --- repaso a mano ----------------------------------------------------------
+#
+# Ningún reconocimiento óptico acierta el 100%, y prometer lo contrario es
+# engañar. Lo que sí se puede es dejar el repaso en dos minutos: ver la
+# partitura con sus números encima, tocar los que estén mal y volver a
+# generar el PDF. Lo que no se toca sale exactamente igual que antes.
+
+def _base_pdf(tid: str, datos: dict) -> Path:
+    """El PDF sobre el que se estampa (el original, o el enderezado)."""
+    d = _dir(tid)
+    nombre = datos.get("base") or datos.get("archivo")
+    ruta = d / nombre if nombre else None
+    if ruta is None or not ruta.exists():
+        raise HTTPException(404, "No está el PDF de partida de ese trabajo")
+    return ruta
+
+
+def _hoja(tid: str) -> dict:
+    f = _dir(tid) / "marcas.json"
+    if not f.exists():
+        raise HTTPException(
+            404, "Ese trabajo no se puede repasar: se generó redibujando la "
+                 "partitura, no estampando sobre tu PDF.")
+    return json.loads(f.read_text(encoding="utf-8"))
+
+
+@app.get("/api/trabajos/{tid}/revision")
+def revision(tid: str) -> dict:
+    datos = _leer(tid)
+    hoja = _hoja(tid)
+    hoja["titulo"] = datos.get("titulo") or datos.get("nombre")
+    return hoja
+
+
+@app.get("/api/trabajos/{tid}/pagina/{numero}.png")
+def pagina_png(tid: str, numero: int, escala: float = 1.5):
+    """La página sin números, para pintar encima en el navegador."""
+    import pypdfium2 as pdfium
+
+    datos = _leer(tid)
+    base = _base_pdf(tid, datos)
+    escala = min(max(escala, 0.5), 4.0)
+
+    doc = pdfium.PdfDocument(str(base))
+    try:
+        if not 0 <= numero < len(doc):
+            raise HTTPException(404, "Esa página no existe")
+        imagen = doc[numero].render(scale=escala).to_pil()
+    finally:
+        doc.close()
+
+    tmp = Path(tempfile.mkdtemp(prefix="pag-"))
+    destino = tmp / f"{numero}.png"
+    imagen.save(destino, "PNG", optimize=True)
+    return FileResponse(destino, media_type="image/png",
+                        background=_borrar_luego(tmp))
+
+
+@app.post("/api/trabajos/{tid}/revision")
+async def guardar_revision(tid: str, hoja: dict = Body(...)) -> dict:
+    """Vuelve a estampar con las correcciones del usuario."""
+    datos = _leer(tid)
+    base = _base_pdf(tid, datos)
+    anterior = _hoja(tid)
+
+    limpia = _validar_hoja(hoja, anterior)
+    d = _dir(tid)
+    (d / "marcas.json").write_text(json.dumps(limpia, ensure_ascii=False),
+                                   encoding="utf-8")
+    puestas = superponer.estampar_resueltas(base, d / "resultado.pdf", limpia)
+    a_mano = sum(1 for p in limpia["paginas"] for n in p["numeros"]
+                 if n.get("a_mano"))
+    _guardar(tid, notas=puestas, revisado=True, corregidas=a_mano,
+             dudosas=sum(1 for p in limpia["paginas"] for n in p["numeros"]
+                         if not n.get("a_mano")
+                         and n.get("confianza", 1.0) < superponer.CONFIANZA_DUDOSA))
+    return {"notas": puestas, "corregidas": a_mano}
+
+
+def _validar_hoja(hoja: dict, anterior: dict) -> dict:
+    """
+    Se fía de las correcciones, pero no de la geometría.
+
+    El navegador puede mandar los números que quiera y donde quiera dentro
+    de la página, que es justo el sentido de poder corregir a mano. Lo que
+    no puede es cambiar el tamaño de la hoja ni inventarse páginas: eso se
+    coge de lo que ya había.
+    """
+    paginas_previas = {p["pagina"]: p for p in anterior.get("paginas", [])}
+    salida = []
+    for pag in hoja.get("paginas", []):
+        previa = paginas_previas.get(pag.get("pagina"))
+        if previa is None:
+            continue
+        numeros = []
+        for n in (pag.get("numeros") or [])[:4000]:
+            texto = str(n.get("texto") or "").strip()[:4]
+            if not texto:
+                continue    # borrar un número es dejarlo sin texto
+            try:
+                x, y = float(n["x"]), float(n["y"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not (0 <= x <= previa["ancho_pt"] and 0 <= y <= previa["alto_pt"]):
+                continue
+            numeros.append({
+                "x": round(x, 2), "y": round(y, 2), "texto": texto,
+                "sistema": int(n.get("sistema", 0)),
+                "confianza": min(max(float(n.get("confianza", 1.0)), 0.0), 1.0),
+                "cuerpo": round(float(n.get("cuerpo") or 0.0), 2),
+                "estimada": bool(n.get("estimada")),
+                "a_mano": bool(n.get("a_mano")),
+            })
+        nueva = dict(previa)
+        nueva["numeros"] = numeros
+        salida.append(nueva)
+    return {"version": anterior.get("version", 1), "paginas": salida}
+
+
+@app.get("/revisar")
+def revisar():
+    return FileResponse(ESTATICOS / "revisar.html")
 
 
 # --- web --------------------------------------------------------------------

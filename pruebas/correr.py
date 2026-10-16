@@ -45,6 +45,14 @@ def main() -> None:
                 ["pruebas/test_trabajos.py"]):
         fallos.append("test_trabajos")
 
+    if not paso("enderezar escaneos torcidos",
+                ["pruebas/test_normalizar.py"]):
+        fallos.append("test_normalizar")
+
+    if not paso("repaso a mano: corregir no mueve lo demás",
+                ["pruebas/test_revision.py"]):
+        fallos.append("test_revision")
+
     if args.actualizar_base:
         if not paso("midiendo y guardando la nueva base",
                     ["metricas.py", "--sinteticos", "--json", str(BASE)]):

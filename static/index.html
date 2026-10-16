@@ -543,6 +543,7 @@ function pintar(t) {
       <p style="margin:14px 0 0;color:var(--tinta-media);font-size:.9rem">${escapar(resumen + dudosas + entrada + papel + coord + geom + nota)}</p>
       <div class="acciones">
         <a class="boton" href="/api/trabajos/${t.id}/pdf">Descargar el PDF</a>
+        ${t.revisable ? `<a class="boton" href="/revisar?id=${t.id}">Repasar los números</a>` : ""}
         <a class="boton secundario" href="/api/trabajos/${t.id}/musicxml">Descargar MusicXML</a>
         <button class="boton secundario" data-borrar="${t.id}">Borrar</button>
       </div>

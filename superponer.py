@@ -1693,6 +1693,158 @@ def _fantasmas(pdf: Path, registros: List[dict], descansos: List[dict],
             for g in sorted(por_ancla[ancla], key=lambda g: -g["x"])]
 
 
+def hoja_de_marcas(diag: List[dict]) -> dict:
+    """
+    Los números ya colocados, listos para editarlos y volver a estamparlos.
+
+    Es lo que separa el repaso a mano de todo lo anterior. Una vez
+    estampada la partitura, lo que queda es una lista de "en esta página,
+    en este punto, este número, de este tamaño". Para corregir a mano no
+    hace falta volver a reconstruir nada desde el MusicXML: basta con tocar
+    esa lista y dibujarla otra vez. Y como las coordenadas ya están en
+    puntos de la página tal como se ve, es justo lo que el navegador
+    necesita para pintarlas encima de la imagen.
+
+    Se guardan también las bandas de los pentagramas, para que al añadir un
+    número a mano se pueda deducir la altura de la nota por dónde se ha
+    pinchado y ofrecer solo las posiciones que existen para esa nota.
+    """
+    paginas = []
+    for f in diag:
+        if "alto_pt" not in f:
+            continue
+        numeros = []
+        for n in f.get("notas", []):
+            if n["estado"].startswith("descartada"):
+                continue
+            numeros.append({
+                "x": round(n["x"], 2),
+                "y": round(n["y"], 2),
+                "texto": n["texto"],
+                "sistema": n["sistema"],
+                "confianza": n.get("confianza", 1.0),
+                "cuerpo": round(n.get("cuerpo", 0.0), 2),
+                "estimada": n.get("estimada", False),
+                "a_mano": False,
+            })
+        numeros.sort(key=lambda n: (n["sistema"], n["x"]))
+        paginas.append({
+            "pagina": f["pagina"],
+            "giro": f["giro"],
+            "ancho_pt": f["ancho_pt"],
+            "alto_pt": f["alto_pt"],
+            "espacio": f.get("espacio", 0.0),
+            "pentagramas": f.get("pentagramas", []),
+            "sistemas": (plano_sistemas(f)),
+            "numeros": numeros,
+        })
+    return {"version": 1, "paginas": paginas}
+
+
+def plano_sistemas(ficha: dict) -> List[int]:
+    """Qué sistemas hay en esta página, en el mismo orden que sus bandas."""
+    vistos = []
+    for n in ficha.get("notas", []):
+        if n["sistema"] not in vistos:
+            vistos.append(n["sistema"])
+    return sorted(vistos)
+
+
+def estampar_resueltas(pdf_original: Path, pdf_salida: Path,
+                       hoja: dict) -> int:
+    """
+    Dibuja una hoja de marcas tal cual, sin recalcular nada.
+
+    Es el camino de vuelta del repaso a mano: el usuario corrige lo que
+    haga falta en el navegador y esto lo vuelve a estampar. Lo que no se
+    tocó sale exactamente igual que antes, porque las coordenadas son las
+    mismas; no hay forma de que corregir un número mueva otro.
+    """
+    from io import BytesIO
+
+    from pypdf import PdfReader, PdfWriter
+    from reportlab.pdfgen import canvas
+
+    lector = PdfReader(str(pdf_original))
+    escritor = PdfWriter()
+    por_pagina = {p["pagina"]: p for p in hoja.get("paginas", [])}
+
+    puestas = 0
+    for indice, pagina in enumerate(lector.pages):
+        datos = por_pagina.get(indice)
+        if datos and datos.get("numeros"):
+            caja = pagina.cropbox or pagina.mediabox
+            ancho_caja, alto_caja = float(caja.width), float(caja.height)
+            orig_x, orig_y = float(caja.left), float(caja.bottom)
+            giro = int(pagina.get("/Rotate") or 0) % 360
+            alto_pt = datos["alto_pt"]
+            por_defecto = max(datos.get("espacio", 5.0) * 2.0, 4.0)
+
+            buffer = BytesIO()
+            lienzo = canvas.Canvas(buffer, pagesize=(
+                float(pagina.mediabox.width), float(pagina.mediabox.height)))
+            for n in datos["numeros"]:
+                texto = str(n.get("texto") or "").strip()
+                if not texto:
+                    continue
+                x_hoja, y_hoja = a_hoja(float(n["x"]), float(n["y"]), giro,
+                                        ancho_caja, alto_caja, alto_pt,
+                                        orig_x, orig_y)
+                conf = float(n.get("confianza", 1.0))
+                # Lo corregido a mano es lo más fiable que hay aquí: va en
+                # negro aunque viniera de un número gris.
+                if n.get("a_mano"):
+                    conf = 1.0
+                lienzo.saveState()
+                lienzo.translate(x_hoja, y_hoja)
+                if giro:
+                    lienzo.rotate(giro)
+                lienzo.setFillGray(min(max(1.0 - conf, 0.0), 1.0) * 0.72)
+                lienzo.setFont("Helvetica", float(n.get("cuerpo") or 0)
+                               or por_defecto)
+                lienzo.drawCentredString(0, 0, texto)
+                lienzo.restoreState()
+                puestas += 1
+            lienzo.save()
+            buffer.seek(0)
+            pagina.merge_page(PdfReader(buffer).pages[0])
+        escritor.add_page(pagina)
+
+    with open(pdf_salida, "wb") as f:
+        escritor.write(f)
+    return puestas
+
+
+def altura_en_punto(hoja_pagina: dict, x: float, y: float,
+                    clave=CLAVE_POR_DEFECTO, fifths: int = 0):
+    """
+    Qué nota hay donde el usuario ha pinchado, y en qué pentagrama.
+
+    Sirve para que al añadir un número a mano no haya que adivinarlo: se
+    mira sobre qué pentagrama cae el clic, se lee la altura por la posición
+    vertical y se ofrecen solo las posiciones que existen para esa nota.
+    """
+    bandas = hoja_pagina.get("pentagramas") or []
+    sistemas = hoja_pagina.get("sistemas") or list(range(len(bandas)))
+    if not bandas:
+        return None
+
+    def distancia(k: int) -> float:
+        sup, inf = bandas[k][0], bandas[k][1]
+        if sup <= y <= inf:
+            return 0.0
+        return min(abs(y - sup), abs(y - inf))
+
+    k = min(range(len(bandas)), key=distancia)
+    sup, inf, izq, der = bandas[k][:4]
+    midi = _midi_en_clave(y, sup, inf, clave, fifths)
+    return {
+        "sistema": sistemas[k] if k < len(sistemas) else k,
+        "midi": midi,
+        "banda": [sup, inf, izq, der],
+    }
+
+
 # --- estampado sobre el PDF -------------------------------------------------
 
 # Cuerpo de letra de los números, en espacios de pentagrama. En pasajes
@@ -2000,6 +2152,12 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
             buffer = BytesIO()
             lienzo = canvas.Canvas(buffer, pagesize=(ancho_caja, alto_caja))
             for m, x_vista, conf in colocadas:
+                cuerpo = cuerpos.get(m.sistema, espacio * tamano_relativo)
+                if ficha is not None:
+                    for f in ficha["notas"]:
+                        if f["id"] == id(m):
+                            f["cuerpo"] = cuerpo
+                            break
                 x_hoja, y_hoja = a_hoja(x_vista, alturas[m.sistema], giro,
                                         ancho_caja, alto_caja, alto_pt,
                                         orig_x, orig_y)
@@ -2012,8 +2170,7 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                 # lee igual de bien y avisa de que conviene mirarlo; uno
                 # que falta no avisa de nada.
                 lienzo.setFillGray(min(max(1.0 - conf, 0.0), 1.0) * 0.72)
-                lienzo.setFont("Helvetica",
-                               cuerpos.get(m.sistema, espacio * tamano_relativo))
+                lienzo.setFont("Helvetica", cuerpo)
                 lienzo.drawCentredString(0, 0, m.texto)
                 lienzo.restoreState()
                 puestas += 1
