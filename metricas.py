@@ -51,6 +51,8 @@ BATERIA = [
     ("recortada-y-girada", {"margen_cropbox": 12.0, "rotate": 90}),
     ("sin-coordenadas-20", {"sin_dx": 0.20}),
     ("sin-coordenadas-50", {"sin_dx": 0.50}),
+    ("sin-coordenadas-80", {"sin_dx": 0.80}),
+    ("ritmo-plano", {"ritmo": False, "sin_dx": 0.50}),
 ]
 
 CABECERA = ("caso", "notas", "estamp", "cob%", "desc", "err_med",

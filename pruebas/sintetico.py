@@ -47,7 +47,7 @@ MARGEN_INF = 80.0
 DIST_PRIMER_SISTEMA = 150.0
 DIST_SISTEMA_MAX = 240.0
 
-NOTAS_POR_COMPAS = 4
+DIVISIONES = 4               # por negra: permite corcheas sin decimales
 MEDIA_CABEZA = 6.5           # el mismo valor que usa superponer.py
 ANCHO_CABEZA = 13.0
 ALTO_CABEZA = 10.0
@@ -80,19 +80,46 @@ def altura_de_grado(k: int) -> Tuple[str, int, int]:
 MELODIA = [0, 2, 4, 2, 5, 4, 2, 0, -1, 1, 3, 1, 4, 6, 4, 3,
            7, 5, 3, 5, 8, 6, 4, 6, 2, 4, 6, 8, 7, 5, 3, 1]
 
+# Compases de 4/4, en negras. Mezclar duraciones es lo que hace la prueba
+# honesta: con todo negras, el tiempo y la distancia son proporcionales y
+# cualquier estimador acierta por casualidad.
+RITMOS = [
+    [1, 1, 1, 1],
+    [0.5, 0.5, 1, 2],
+    [2, 1, 0.5, 0.5],
+    [0.5, 0.5, 0.5, 0.5, 2],
+    [1, 0.5, 0.5, 2],
+    [2, 2],
+    [4],
+    [0.5] * 8,
+    [1, 1, 2],
+    [0.5, 0.5, 0.5, 0.5, 1, 1],
+]
+
+# Un grabador no reparte el compás en partes iguales ni proporcionalmente a
+# la duración: una blanca no ocupa cuatro veces lo que una corchea. El ancho
+# crece mucho más despacio que la duración, en torno a esta potencia.
+POTENCIA_ESPACIADO = 0.55
+SANGRIA_COMPAS = 0.08        # hueco tras la barra antes de la primera nota
+OCUPACION_COMPAS = 0.84      # parte del compás que ocupan las notas
+
+TIPOS = {0.5: "eighth", 1: "quarter", 1.5: "quarter", 2: "half",
+         3: "half", 4: "whole"}
+
 
 class Caso:
     """Una partitura sintética con su verdad."""
 
     def __init__(self, paginas: int = 2, sistemas: int = 4, compases: int = 4,
                  rotate: int = 0, margen_cropbox: float = 0.0,
-                 sin_dx: float = 0.0, semilla: int = 7):
+                 sin_dx: float = 0.0, ritmo: bool = True, semilla: int = 7):
         self.paginas = paginas
         self.sistemas = sistemas
         self.compases = compases
         self.rotate = rotate % 360
         self.margen_cropbox = margen_cropbox
         self.sin_dx = sin_dx
+        self.ritmo = ritmo
         self.azar = random.Random(semilla)
 
         self.ancho_pagina = A4_ANCHO_MM / MM_POR_DECIMO
@@ -159,6 +186,24 @@ class Caso:
 
     # -- contenido -----------------------------------------------------------
 
+    def _reparto(self, duraciones: List[float]) -> List[float]:
+        """
+        Dónde cae cada nota dentro del compás, en fracción de su ancho.
+
+        Reparte el espacio con el ancho de cada nota creciendo como una
+        potencia de su duración, que es lo que hace cualquier grabador. Con
+        esto el tiempo y la distancia dejan de ser proporcionales y el
+        estimador de coordenadas tiene algo de verdad que resolver.
+        """
+        anchos = [d ** POTENCIA_ESPACIADO for d in duraciones]
+        total = sum(anchos) or 1.0
+        salida, acumulado = [], 0.0
+        for a in anchos:
+            salida.append(SANGRIA_COMPAS
+                          + OCUPACION_COMPAS * acumulado / total)
+            acumulado += a
+        return salida
+
     def _componer(self) -> None:
         n = 0
         indice_sistema = 0
@@ -177,8 +222,14 @@ class Caso:
                 })
                 for c in range(self.compases):
                     x_medida = MARGEN_IZQ + c * self.ancho_compas
-                    for j in range(NOTAS_POR_COMPAS):
-                        dx = self.ancho_compas * (0.10 + 0.22 * j)
+                    indice_compas = (pagina * self.sistemas * self.compases
+                                     + s * self.compases + c)
+                    duraciones = (RITMOS[indice_compas % len(RITMOS)]
+                                  if self.ritmo else [1, 1, 1, 1])
+                    reparto = self._reparto(duraciones)
+                    tiempo = 0.0
+                    for j, dur in enumerate(duraciones):
+                        dx = self.ancho_compas * reparto[j]
                         k = MELODIA[n % len(MELODIA)]
                         letra, octava, midi = altura_de_grado(k)
                         # Media línea por grado: la cabeza se apoya en la
@@ -189,10 +240,11 @@ class Caso:
                             "n": n,
                             "pagina": pagina,
                             "sistema": indice_sistema,
-                            "compas": pagina * self.sistemas * self.compases
-                                      + s * self.compases + c,
+                            "compas": indice_compas,
                             "dx": dx,
                             "x_medida": x_medida,
+                            "duracion": dur,
+                            "tiempo": tiempo,
                             "midi": midi,
                             "letra": letra,
                             "octava": octava,
@@ -203,6 +255,7 @@ class Caso:
                             # Audiveris a veces no da la coordenada.
                             "con_dx": self.azar.random() >= self.sin_dx,
                         })
+                        tiempo += dur
                         n += 1
                 indice_sistema += 1
 
@@ -246,7 +299,11 @@ class Caso:
             self._retocar_cajas(destino)
 
     def _cabeza(self, c, nota: dict) -> None:
-        """Una cabeza elíptica con su plica, en coordenadas de hoja."""
+        """Una cabeza elíptica con su plica, en coordenadas de hoja.
+
+        Las de duración dos negras o más van huecas y la redonda no lleva
+        plica, como en cualquier partitura.
+        """
         cx_pt, cy_pt = nota["x_pt"], nota["y_pt"]
         rx = ANCHO_CABEZA / 2.0 * PT_POR_DECIMO
         ry = ALTO_CABEZA / 2.0 * PT_POR_DECIMO
@@ -264,7 +321,15 @@ class Caso:
         for q in puntos[1:]:
             p.lineTo(*q)
         p.close()
-        c.drawPath(p, stroke=0, fill=1)
+        hueca = nota.get("duracion", 1) >= 2
+        if hueca:
+            c.setLineWidth(1.0)
+            c.drawPath(p, stroke=1, fill=0)
+        else:
+            c.drawPath(p, stroke=0, fill=1)
+
+        if nota.get("duracion", 1) >= 4:
+            return    # la redonda no lleva plica
 
         # Plica hacia arriba, pegada al borde derecho de la cabeza.
         a1 = self.a_hoja(cx_pt + rx, cy_pt)
@@ -340,7 +405,7 @@ class Caso:
                             imp.set("new-system", "yes")
                     if numero == 1:
                         at = ET.SubElement(m, "attributes")
-                        ET.SubElement(at, "divisions").text = "1"
+                        ET.SubElement(at, "divisions").text = str(DIVISIONES)
                         key = ET.SubElement(at, "key")
                         ET.SubElement(key, "fifths").text = "0"
                         tim = ET.SubElement(at, "time")
@@ -358,9 +423,11 @@ class Caso:
                         p = ET.SubElement(n, "pitch")
                         ET.SubElement(p, "step").text = nota["letra"]
                         ET.SubElement(p, "octave").text = str(nota["octava"])
-                        ET.SubElement(n, "duration").text = "1"
+                        ET.SubElement(n, "duration").text = str(
+                            int(round(nota["duracion"] * DIVISIONES)))
                         ET.SubElement(n, "voice").text = "1"
-                        ET.SubElement(n, "type").text = "quarter"
+                        ET.SubElement(n, "type").text = TIPOS.get(
+                            nota["duracion"], "quarter")
 
         ET.ElementTree(raiz).write(str(destino), encoding="UTF-8",
                                    xml_declaration=True)
@@ -405,11 +472,14 @@ def main() -> None:
                     help="margen entre MediaBox y CropBox, para probar PDFs recortados")
     ap.add_argument("--sin-dx", type=float, default=0.0, metavar="FRAC",
                     help="fracción de notas sin default-x, como en pasajes densos")
+    ap.add_argument("--sin-ritmo", action="store_true",
+                    help="todo negras y repartido por igual (prueba fácil)")
     args = ap.parse_args()
 
     caso = Caso(paginas=args.paginas, sistemas=args.sistemas,
                 compases=args.compases, rotate=args.rotate,
-                margen_cropbox=args.cropbox, sin_dx=args.sin_dx)
+                margen_cropbox=args.cropbox, sin_dx=args.sin_dx,
+                ritmo=not args.sin_ritmo)
     rutas = caso.generar(args.carpeta)
     print("%d notas, %d pentagramas, %d páginas"
           % (len(caso.notas), len(caso.pentagramas), caso.paginas))

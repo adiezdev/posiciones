@@ -183,6 +183,154 @@ def _referencias(registros: List[dict], margen_izq: float,
 
 
 
+def _recta(muestras: List[Tuple[float, float]]) -> Optional[Tuple[float, float]]:
+    """Ajusta y = a + b·x por mínimos cuadrados. None si no da."""
+    n = len(muestras)
+    if n < 2:
+        return None
+    sx = sy = sxx = sxy = 0.0
+    for x, y in muestras:
+        sx += x
+        sy += y
+        sxx += x * x
+        sxy += x * y
+    den = n * sxx - sx * sx
+    if abs(den) < 1e-9:
+        return None
+    b = (n * sxy - sx * sy) / den
+    return (sy - b * sx) / n, b
+
+
+# Cómo reparte el grabador el ancho de un compás entre sus notas. No es
+# proporcional a la duración: una blanca no ocupa cuatro veces lo que una
+# corchea, ni de lejos. Cada programa usa su ley, así que probamos varias y
+# nos quedamos con la que mejor explica las notas que SÍ traen coordenada en
+# esta partitura concreta. Es la diferencia entre acertar de casualidad en
+# las partituras de negras y acertar siempre.
+import math as _math
+
+LEYES = (
+    ("potencia-0.0", lambda d: 1.0),                       # todas igual
+    ("potencia-0.3", lambda d: max(d, 1e-6) ** 0.30),
+    ("potencia-0.45", lambda d: max(d, 1e-6) ** 0.45),
+    ("potencia-0.6", lambda d: max(d, 1e-6) ** 0.60),
+    ("potencia-0.8", lambda d: max(d, 1e-6) ** 0.80),
+    ("proporcional", lambda d: max(d, 1e-6)),
+    ("logaritmica", lambda d: 1.0 + _math.log2(max(d, 1e-6) / 0.125)),
+)
+
+
+def _avance(rs: List[dict], ley) -> List[float]:
+    """
+    Qué fracción del compás lleva recorrida cada nota, según una ley de
+    espaciado. `rs` tiene que venir ordenado por tiempo.
+    """
+    anchos = [max(ley(r["duracion"]), 0.0) for r in rs]
+    total = sum(anchos)
+    if total <= 0:
+        n = max(len(rs) - 1, 1)
+        return [i / n for i in range(len(rs))]
+    salida, acumulado = [], 0.0
+    for a in anchos:
+        salida.append(acumulado / total)
+        acumulado += a
+    return salida
+
+
+def _estimar_dx(registros: List[dict]) -> int:
+    """
+    Rellena las coordenadas que Audiveris no ha dado, compás a compás.
+
+    Antes se interpolaba linealmente por tiempo entre la primera y la última
+    nota del SISTEMA con coordenada. Un sistema son cuatro o cinco compases,
+    y dentro de ellos la música no se reparte de forma uniforme: un compás de
+    corcheas ocupa lo mismo que uno de redondas. El resultado era que una
+    nota sin coordenada acababa a decenas de puntos de su cabeza, el número
+    caía encima de otra nota y el filtro de duplicados lo tiraba. Ahí es
+    donde se comían las notas.
+
+    De un compás sí sabemos dos cosas exactas: dónde empieza y cuánto mide,
+    porque el MusicXML las trae. Así que el error se acota a un compás en
+    lugar de a un sistema. Dentro del compás la relación entre tiempo y
+    distancia es casi una recta, y además se ajusta con las notas del propio
+    compás que sí traen coordenada.
+
+    Devuelve cuántas ha tenido que estimar.
+    """
+    por_medida: Dict[int, List[dict]] = {}
+    for r in registros:
+        por_medida.setdefault(r["medida"], []).append(r)
+
+    for rs in por_medida.values():
+        rs.sort(key=lambda r: r["offset"])
+
+    # Qué ley de espaciado usa esta partitura. Se elige por la que menos se
+    # equivoca al predecir las notas que sí traen coordenada: un ajuste a los
+    # datos reales, no una constante elegida a ojo en un despacho.
+    mejor_ley, mejor_modelo, mejor_error = None, None, None
+    for nombre, ley in LEYES:
+        muestras: List[Tuple[float, float]] = []
+        for rs in por_medida.values():
+            ancho = rs[0].get("ancho_medida") or 0.0
+            if ancho <= 0:
+                continue
+            avances = _avance(rs, ley)
+            for r, u in zip(rs, avances):
+                if r["dx"] is not None:
+                    muestras.append((u, r["dx"] / ancho))
+        modelo = _recta(muestras)
+        if modelo is None:
+            continue
+        a, b = modelo
+        error = sum((y - (a + b * u)) ** 2 for u, y in muestras) / len(muestras)
+        if mejor_error is None or error < mejor_error:
+            mejor_ley, mejor_modelo, mejor_error = ley, modelo, error
+
+    if mejor_ley is None:
+        mejor_ley = LEYES[3][1]
+        mejor_modelo = (0.10, 0.78)
+    general = mejor_modelo
+
+    estimadas = 0
+    for rs in por_medida.values():
+        faltan = [r for r in rs if r["dx"] is None]
+        if not faltan:
+            continue
+        ancho = rs[0].get("ancho_medida") or 0.0
+        if ancho <= 0:
+            continue    # sin ancho de compás no hay nada que escalar
+        avances = dict(zip((id(r) for r in rs), _avance(rs, mejor_ley)))
+        conocidas = [(avances[id(r)], r["dx"])
+                     for r in rs if r["dx"] is not None]
+
+        propia = _recta(conocidas) if len(conocidas) >= 2 else None
+        if propia is not None:
+            a, b = propia
+        elif conocidas:
+            # Una sola referencia: se usa la pendiente general y se desplaza
+            # la recta para que pase por ella.
+            b = general[1] * ancho
+            t1, dx1 = conocidas[0]
+            a = dx1 - b * t1
+        else:
+            a, b = general[0] * ancho, general[1] * ancho
+
+        for r in faltan:
+            dx = a + b * avances[id(r)]
+            r["dx"] = min(max(dx, -0.05 * ancho), 1.05 * ancho)
+            r["dx_estimada"] = True
+            estimadas += 1
+
+        # Dentro de un compás las notas van de izquierda a derecha. Si el
+        # ajuste sale torcido (pocas muestras, un compás raro), al menos que
+        # no se crucen entre sí.
+        for i in range(1, len(rs)):
+            if rs[i]["dx"] < rs[i - 1]["dx"]:
+                rs[i]["dx"] = rs[i - 1]["dx"]
+
+    return estimadas
+
+
 def _rellenar_dx(registros: List[dict]) -> None:
     i = 0
     n = len(registros)
@@ -307,8 +455,11 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     registros: List[dict] = []
     descansos: List[dict] = []
     sin_coordenada = 0
+    indice_medida = -1
 
     for medida in partes[0].findall("measure"):
+        indice_medida += 1
+        offset_medida = offset
         imp = medida.find("print")
         nueva_pagina = primera
         nuevo_sistema = primera
@@ -355,6 +506,8 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         if sistemas:
             sistemas[-1]["x_fin"] = x_medida + ancho_anterior
         primera = False
+        # `ancho_anterior` ya es el ancho de ESTE compás: las notas de abajo
+        # lo necesitan para situarse dentro de él.
 
         grupo: List[dict] = []
 
@@ -432,6 +585,9 @@ def preparar(ruta_musicxml, transpositor: bool = False,
                 grupo.append({
                     "midi": midi,
                     "ligada": ligada,
+                    "medida": indice_medida,
+                    "offset_medida": offset_medida,
+                    "ancho_medida": ancho_anterior,
                     "offset": offset,
                     "duracion": duracion,
                     "pagina": pagina,
@@ -458,9 +614,15 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     registros.sort(key=lambda r: (r["pagina"], r["sistema"], r["offset"]))
 
     sin_coordenada = sum(1 for r in registros if r["dx"] is None)
-    _rellenar_dx(registros)
-    if all(r["dx"] is None for r in registros):
+    if sin_coordenada == len(registros):
         return rendirse("ninguna_nota_trae_default_x")
+    estimadas_dx = _estimar_dx(registros)
+    # Red de seguridad para los compases sin ancho declarado, que el
+    # estimador no puede escalar: ahí seguimos tirando de los vecinos.
+    _rellenar_dx(registros)
+    registros.sort(key=lambda r: (r["pagina"], r["sistema"], r["offset"]))
+    if diag is not None:
+        diag["dx_estimadas"] = estimadas_dx
 
     # Altura de los números: en la parte baja del hueco hasta el sistema
     # siguiente, medido de verdad en lugar de a ojo.

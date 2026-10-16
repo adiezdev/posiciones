@@ -3,14 +3,14 @@
   "caso": "base",
   "ok": true,
   "motivo": null,
-  "notas_omr": 128,
-  "marcas": 128,
+  "notas_omr": 131,
+  "marcas": 131,
   "sin_x": 0,
   "estimadas": 0,
-  "estampadas": 128,
+  "estampadas": 131,
   "descartadas": 0,
   "estados": {
-   "puesta": 128
+   "puesta": 131
   },
   "modo_x": "medida",
   "encaje": 1.0,
@@ -20,13 +20,13 @@
   "medido": true,
   "cobertura": 1.0,
   "comparacion": {
-   "notas_verdad": 128,
+   "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.519,
-   "error_p95_pt": 0.652,
-   "error_max_pt": 0.652,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 0.645,
+   "error_max_pt": 0.659,
    "espacio_pt": 4.961,
-   "aciertos": 128,
+   "aciertos": 131,
    "tasa_acierto": 1.0
   },
   "segundos": 0.3
@@ -35,14 +35,14 @@
   "caso": "una-pagina",
   "ok": true,
   "motivo": null,
-  "notas_omr": 96,
-  "marcas": 96,
+  "notas_omr": 99,
+  "marcas": 99,
   "sin_x": 0,
   "estimadas": 0,
-  "estampadas": 96,
+  "estampadas": 99,
   "descartadas": 0,
   "estados": {
-   "puesta": 96
+   "puesta": 99
   },
   "modo_x": "medida",
   "encaje": 1.0,
@@ -52,13 +52,13 @@
   "medido": true,
   "cobertura": 1.0,
   "comparacion": {
-   "notas_verdad": 96,
+   "notas_verdad": 99,
    "sin_numero": 0,
-   "error_mediano_pt": 0.519,
-   "error_p95_pt": 0.652,
-   "error_max_pt": 0.652,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 0.645,
+   "error_max_pt": 0.659,
    "espacio_pt": 4.961,
-   "aciertos": 96,
+   "aciertos": 99,
    "tasa_acierto": 1.0
   },
   "segundos": 0.1
@@ -67,14 +67,14 @@
   "caso": "apretada",
   "ok": true,
   "motivo": null,
-  "notas_omr": 288,
-  "marcas": 288,
+  "notas_omr": 295,
+  "marcas": 295,
   "sin_x": 0,
   "estimadas": 0,
-  "estampadas": 288,
+  "estampadas": 295,
   "descartadas": 0,
   "estados": {
-   "puesta": 288
+   "puesta": 295
   },
   "modo_x": "medida",
   "encaje": 1.0,
@@ -84,13 +84,13 @@
   "medido": true,
   "cobertura": 1.0,
   "comparacion": {
-   "notas_verdad": 288,
+   "notas_verdad": 295,
    "sin_numero": 0,
-   "error_mediano_pt": 0.517,
-   "error_p95_pt": 0.648,
-   "error_max_pt": 0.66,
+   "error_mediano_pt": 0.514,
+   "error_p95_pt": 0.647,
+   "error_max_pt": 0.658,
    "espacio_pt": 4.961,
-   "aciertos": 288,
+   "aciertos": 295,
    "tasa_acierto": 1.0
   },
   "segundos": 0.2
@@ -99,14 +99,14 @@
   "caso": "girada-90",
   "ok": true,
   "motivo": null,
-  "notas_omr": 128,
-  "marcas": 128,
+  "notas_omr": 131,
+  "marcas": 131,
   "sin_x": 0,
   "estimadas": 0,
-  "estampadas": 128,
+  "estampadas": 131,
   "descartadas": 0,
   "estados": {
-   "puesta": 128
+   "puesta": 131
   },
   "modo_x": "medida",
   "encaje": 1.0,
@@ -116,13 +116,13 @@
   "medido": true,
   "cobertura": 1.0,
   "comparacion": {
-   "notas_verdad": 128,
+   "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.519,
-   "error_p95_pt": 0.652,
-   "error_max_pt": 0.652,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 0.645,
+   "error_max_pt": 0.659,
    "espacio_pt": 4.961,
-   "aciertos": 128,
+   "aciertos": 131,
    "tasa_acierto": 1.0
   },
   "segundos": 0.1
@@ -131,14 +131,14 @@
   "caso": "girada-180",
   "ok": true,
   "motivo": null,
-  "notas_omr": 128,
-  "marcas": 128,
+  "notas_omr": 131,
+  "marcas": 131,
   "sin_x": 0,
   "estimadas": 0,
-  "estampadas": 128,
+  "estampadas": 131,
   "descartadas": 0,
   "estados": {
-   "puesta": 128
+   "puesta": 131
   },
   "modo_x": "medida",
   "encaje": 1.0,
@@ -148,29 +148,29 @@
   "medido": true,
   "cobertura": 1.0,
   "comparacion": {
-   "notas_verdad": 128,
+   "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.519,
-   "error_p95_pt": 0.652,
-   "error_max_pt": 0.652,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 0.645,
+   "error_max_pt": 0.659,
    "espacio_pt": 4.961,
-   "aciertos": 128,
+   "aciertos": 131,
    "tasa_acierto": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.2
  },
  {
   "caso": "girada-270",
   "ok": true,
   "motivo": null,
-  "notas_omr": 128,
-  "marcas": 128,
+  "notas_omr": 131,
+  "marcas": 131,
   "sin_x": 0,
   "estimadas": 0,
-  "estampadas": 128,
+  "estampadas": 131,
   "descartadas": 0,
   "estados": {
-   "puesta": 128
+   "puesta": 131
   },
   "modo_x": "medida",
   "encaje": 1.0,
@@ -180,13 +180,13 @@
   "medido": true,
   "cobertura": 1.0,
   "comparacion": {
-   "notas_verdad": 128,
+   "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.519,
-   "error_p95_pt": 0.652,
-   "error_max_pt": 0.652,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 0.645,
+   "error_max_pt": 0.659,
    "espacio_pt": 4.961,
-   "aciertos": 128,
+   "aciertos": 131,
    "tasa_acierto": 1.0
   },
   "segundos": 0.1
@@ -195,14 +195,14 @@
   "caso": "recortada",
   "ok": true,
   "motivo": null,
-  "notas_omr": 128,
-  "marcas": 128,
+  "notas_omr": 131,
+  "marcas": 131,
   "sin_x": 0,
   "estimadas": 0,
-  "estampadas": 128,
+  "estampadas": 131,
   "descartadas": 0,
   "estados": {
-   "puesta": 128
+   "puesta": 131
   },
   "modo_x": "medida",
   "encaje": 1.0,
@@ -212,13 +212,13 @@
   "medido": true,
   "cobertura": 1.0,
   "comparacion": {
-   "notas_verdad": 128,
+   "notas_verdad": 131,
    "sin_numero": 0,
-   "error_mediano_pt": 0.519,
-   "error_p95_pt": 0.652,
-   "error_max_pt": 0.652,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 0.645,
+   "error_max_pt": 0.659,
    "espacio_pt": 4.961,
-   "aciertos": 128,
+   "aciertos": 131,
    "tasa_acierto": 1.0
   },
   "segundos": 0.2
@@ -227,6 +227,134 @@
   "caso": "recortada-y-girada",
   "ok": true,
   "motivo": null,
+  "notas_omr": 131,
+  "marcas": 131,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 131,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 131
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 2,
+  "paginas_con_marcas": 2,
+  "paginas_medidas": 2,
+  "medido": true,
+  "cobertura": 1.0,
+  "comparacion": {
+   "notas_verdad": 131,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 0.645,
+   "error_max_pt": 0.659,
+   "espacio_pt": 4.961,
+   "aciertos": 131,
+   "tasa_acierto": 1.0
+  },
+  "segundos": 0.1
+ },
+ {
+  "caso": "sin-coordenadas-20",
+  "ok": true,
+  "motivo": null,
+  "notas_omr": 131,
+  "marcas": 131,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 131,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 131
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 2,
+  "paginas_con_marcas": 2,
+  "paginas_medidas": 2,
+  "medido": true,
+  "cobertura": 1.0,
+  "comparacion": {
+   "notas_verdad": 131,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 1.178,
+   "error_max_pt": 2.848,
+   "espacio_pt": 4.961,
+   "aciertos": 130,
+   "tasa_acierto": 0.9924
+  },
+  "segundos": 0.2
+ },
+ {
+  "caso": "sin-coordenadas-50",
+  "ok": true,
+  "motivo": null,
+  "notas_omr": 131,
+  "marcas": 131,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 131,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 131
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 2,
+  "paginas_con_marcas": 2,
+  "paginas_medidas": 2,
+  "medido": true,
+  "cobertura": 1.0,
+  "comparacion": {
+   "notas_verdad": 131,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.547,
+   "error_p95_pt": 1.424,
+   "error_max_pt": 2.667,
+   "espacio_pt": 4.961,
+   "aciertos": 130,
+   "tasa_acierto": 0.9924
+  },
+  "segundos": 0.2
+ },
+ {
+  "caso": "sin-coordenadas-80",
+  "ok": true,
+  "motivo": null,
+  "notas_omr": 131,
+  "marcas": 131,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 131,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 131
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 2,
+  "paginas_con_marcas": 2,
+  "paginas_medidas": 2,
+  "medido": true,
+  "cobertura": 1.0,
+  "comparacion": {
+   "notas_verdad": 131,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.574,
+   "error_p95_pt": 2.245,
+   "error_max_pt": 3.65,
+   "espacio_pt": 4.961,
+   "aciertos": 128,
+   "tasa_acierto": 0.9771
+  },
+  "segundos": 0.2
+ },
+ {
+  "caso": "ritmo-plano",
+  "ok": true,
+  "motivo": null,
   "notas_omr": 128,
   "marcas": 128,
   "sin_x": 0,
@@ -246,78 +374,12 @@
   "comparacion": {
    "notas_verdad": 128,
    "sin_numero": 0,
-   "error_mediano_pt": 0.519,
-   "error_p95_pt": 0.652,
-   "error_max_pt": 0.652,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 0.651,
+   "error_max_pt": 0.651,
    "espacio_pt": 4.961,
    "aciertos": 128,
    "tasa_acierto": 1.0
-  },
-  "segundos": 0.1
- },
- {
-  "caso": "sin-coordenadas-20",
-  "ok": true,
-  "motivo": null,
-  "notas_omr": 141,
-  "marcas": 141,
-  "sin_x": 0,
-  "estimadas": 13,
-  "estampadas": 130,
-  "descartadas": 11,
-  "estados": {
-   "puesta": 130,
-   "descartada_duplicada": 11
-  },
-  "modo_x": "medida",
-  "encaje": 1.0,
-  "paginas": 2,
-  "paginas_con_marcas": 2,
-  "paginas_medidas": 2,
-  "medido": true,
-  "cobertura": 0.922,
-  "comparacion": {
-   "notas_verdad": 128,
-   "sin_numero": 0,
-   "error_mediano_pt": 0.493,
-   "error_p95_pt": 0.652,
-   "error_max_pt": 42.494,
-   "espacio_pt": 4.961,
-   "aciertos": 122,
-   "tasa_acierto": 0.9531
-  },
-  "segundos": 0.1
- },
- {
-  "caso": "sin-coordenadas-50",
-  "ok": true,
-  "motivo": null,
-  "notas_omr": 128,
-  "marcas": 128,
-  "sin_x": 0,
-  "estimadas": 0,
-  "estampadas": 96,
-  "descartadas": 32,
-  "estados": {
-   "puesta": 96,
-   "descartada_duplicada": 32
-  },
-  "modo_x": "medida",
-  "encaje": 1.0,
-  "paginas": 2,
-  "paginas_con_marcas": 2,
-  "paginas_medidas": 2,
-  "medido": true,
-  "cobertura": 0.75,
-  "comparacion": {
-   "notas_verdad": 128,
-   "sin_numero": 0,
-   "error_mediano_pt": 0.637,
-   "error_p95_pt": 83.225,
-   "error_max_pt": 98.847,
-   "espacio_pt": 4.961,
-   "aciertos": 72,
-   "tasa_acierto": 0.5625
   },
   "segundos": 0.1
  }
