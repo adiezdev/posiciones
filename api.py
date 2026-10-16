@@ -20,13 +20,11 @@ from __future__ import annotations
 import json
 import os
 import zipfile
-import re
 import shutil
 import subprocess
 import tempfile
 import threading
 import time
-import unicodedata
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -43,6 +41,7 @@ import normalizar
 import omr
 import partitura
 import superponer
+import trabajos
 from anotar import anotar as anotar_score
 from anotar import quitar_reguladores
 from posiciones import CRITERIOS
@@ -54,6 +53,13 @@ TIMEOUT_OMR = int(os.environ.get("TIMEOUT_OMR", "2400"))
 TIMEOUT_RENDER = int(os.environ.get("TIMEOUT_RENDER", "300"))
 DATOS = Path(os.environ.get("DATOS_DIR", "/datos"))
 ESTATICOS = Path(__file__).parent / "static"
+RETENCION_DIAS = int(os.environ.get("RETENCION_DIAS", "30"))
+
+# La versión la pone la construcción de la imagen. Antes era una cadena
+# escrita a mano en dos sitios, que había que acordarse de cambiar.
+VERSION = (os.environ.get("VERSION")
+           or os.environ.get("GIT_SHA")
+           or str(int(Path(__file__).stat().st_mtime)))
 
 DATOS.mkdir(parents=True, exist_ok=True)
 
@@ -65,11 +71,7 @@ _lock = threading.Lock()
 
 # --- persistencia mínima ----------------------------------------------------
 
-def _sanear(nombre: str) -> str:
-    """Nombre de archivo seguro, conservando tildes y espacios."""
-    base = unicodedata.normalize("NFC", Path(nombre).name)
-    base = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "_", base).strip(" .")
-    return base[:120] or "partitura.pdf"
+_sanear = trabajos.sanear
 
 
 def _borrar_luego(d: Path) -> BackgroundTask:
@@ -78,27 +80,21 @@ def _borrar_luego(d: Path) -> BackgroundTask:
 
 
 def _dir(tid: str) -> Path:
-    d = DATOS / tid
-    if not d.is_dir() or ".." in tid or "/" in tid:
+    d = trabajos.carpeta(DATOS, tid)
+    if d is None:
         raise HTTPException(404, "Ese trabajo no existe")
     return d
 
 
 def _leer(tid: str) -> dict:
-    f = _dir(tid) / "estado.json"
-    if not f.exists():
+    datos = trabajos.leer(DATOS, tid)
+    if datos is None:
         raise HTTPException(404, "Ese trabajo no existe")
-    return json.loads(f.read_text(encoding="utf-8"))
+    return datos
 
 
 def _guardar(tid: str, **cambios) -> dict:
-    with _lock:
-        f = DATOS / tid / "estado.json"
-        actual = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
-        actual.update(cambios)
-        actual["actualizado"] = time.time()
-        f.write_text(json.dumps(actual, ensure_ascii=False), encoding="utf-8")
-        return actual
+    return trabajos.guardar(DATOS, tid, **cambios)
 
 
 # --- procesos externos ------------------------------------------------------
@@ -120,7 +116,17 @@ def _compases(ruta: Path) -> int:
         return 0
 
 
-def _correr(cmd: list, timeout: int, etiqueta: str) -> None:
+def _correr(cmd: list, timeout: int, etiqueta: str,
+            tolerar_si: Optional[Path] = None) -> None:
+    """
+    Lanza un proceso externo.
+
+    `tolerar_si` es una carpeta: si el proceso devuelve un código distinto
+    de cero pero ha dejado algo ahí, se sigue adelante. Audiveris protesta
+    por cosas que no impiden exportar la partitura —una página que no
+    entiende, un aviso de fuente— y abortar el trabajo entero por eso era
+    tirar a la basura lo que sí había reconocido.
+    """
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -128,6 +134,8 @@ def _correr(cmd: list, timeout: int, etiqueta: str) -> None:
     if r.returncode != 0:
         detalle = (r.stderr or r.stdout or "").strip().splitlines()
         cola = " ".join(detalle[-3:])[:400] if detalle else "sin detalle"
+        if tolerar_si is not None and any(tolerar_si.rglob("*")):
+            return
         raise RuntimeError(f"{etiqueta} no pudo completar el proceso: {cola}")
 
 
@@ -164,7 +172,8 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
         # ha medido de verdad. Cuesta poco y evita tener que adivinarla.
         _correr([AUDIVERIS, "-batch", "-export", "-save",
                  "-output", str(export), str(pdf_in)],
-                TIMEOUT_OMR, "El reconocimiento de la partitura")
+                TIMEOUT_OMR, "El reconocimiento de la partitura",
+                tolerar_si=export)
 
         encontrados = sorted(export.rglob("*.mxl")) or sorted(export.rglob("*.xml"))
         if not encontrados:
@@ -293,6 +302,39 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
         _guardar(tid, estado="error", error=str(e))
 
 
+def _encolar(t: dict) -> None:
+    """Vuelve a meter en la cola un trabajo con sus mismos ajustes."""
+    p = trabajos.parametros(t)
+    _pool.submit(_trabajar, t["id"], p["transpositor"], p["titulo_manual"],
+                 p["orientacion"], p["sin_reguladores"], p["etiqueta"],
+                 p["criterio"], p["mantener_original"], p["lectura"])
+
+
+@app.on_event("startup")
+def al_arrancar() -> None:
+    """
+    Recoger lo que dejó el proceso anterior.
+
+    El servicio se actualiza solo, así que un reinicio en mitad de un
+    reconocimiento de media hora no es una rareza. Antes esas partituras se
+    quedaban para siempre en "Leyendo la partitura" y el usuario esperando
+    a que acabara algo que ya no existía.
+    """
+    try:
+        borrados = trabajos.limpiar_viejos(DATOS, RETENCION_DIAS)
+        if borrados:
+            print(f"[inicio] {borrados} trabajos viejos borrados")
+        resultado = trabajos.recuperar(DATOS)
+        for t in resultado["rendidos"]:
+            print(f"[inicio] {t['id']} se rinde tras varios reintentos")
+        for t in resultado["reencolados"]:
+            print(f"[inicio] {t['id']} vuelve a la cola")
+            _encolar(t)
+    except Exception as e:  # noqa: BLE001
+        # Que un fallo recogiendo la cola no impida levantar el servicio.
+        print(f"[inicio] no se ha podido recuperar la cola: {e}")
+
+
 # --- API --------------------------------------------------------------------
 
 @app.get("/salud")
@@ -302,14 +344,15 @@ def salud() -> dict:
         "audiveris": Path(AUDIVERIS).exists(),
         "mscore": shutil.which(MSCORE) is not None,
         "datos": str(DATOS),
-        "version": "1791459678",
+        "version": VERSION,
+        "en_marcha": len(trabajos.pendientes(DATOS)),
     }
 
 
 
 @app.get("/api/version")
 def api_version() -> dict:
-    return {"version": "1791459678"}
+    return {"version": VERSION}
 
 
 @app.post("/api/trabajos")
@@ -347,7 +390,9 @@ async def crear(
              transpositor=transpositor, orientacion=orientacion,
              sin_reguladores=sin_reguladores,
              criterio=criterio, lectura=lectura,
-             mantener_original=mantener_original, creado=time.time())
+             titulo_manual=titulo, etiqueta=etiqueta,
+             mantener_original=mantener_original, creado=time.time(),
+             intentos=0)
     _pool.submit(_trabajar, tid, transpositor, titulo, orientacion,
                  sin_reguladores, etiqueta, criterio,
                  mantener_original, lectura)
@@ -357,14 +402,7 @@ async def crear(
 
 @app.get("/api/trabajos")
 def listar() -> list:
-    salida = []
-    for f in DATOS.glob("*/estado.json"):
-        try:
-            salida.append(json.loads(f.read_text(encoding="utf-8")))
-        except Exception:  # noqa: BLE001
-            continue
-    salida.sort(key=lambda x: x.get("creado", 0), reverse=True)
-    return salida[:50]
+    return trabajos.todos(DATOS)[:50]
 
 
 @app.get("/api/trabajos/{tid}")

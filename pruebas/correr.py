@@ -41,6 +41,10 @@ def main() -> None:
                 ["pruebas/test_confianza.py"]):
         fallos.append("test_confianza")
 
+    if not paso("la cola sobrevive a un reinicio",
+                ["pruebas/test_trabajos.py"]):
+        fallos.append("test_trabajos")
+
     if args.actualizar_base:
         if not paso("midiendo y guardando la nueva base",
                     ["metricas.py", "--sinteticos", "--json", str(BASE)]):

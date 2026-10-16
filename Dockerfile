@@ -66,8 +66,13 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
+ARG GIT_SHA=desarrollo
+ENV GIT_SHA=${GIT_SHA} \
+    RETENCION_DIAS=30
+
 COPY posiciones.py anotar.py validar.py partitura.py estilo.py \
-     superponer.py api.py ./
+     superponer.py api.py omr.py normalizar.py trabajos.py \
+     depurar.py metricas.py ./
 COPY static ./static
 
 EXPOSE 8000
