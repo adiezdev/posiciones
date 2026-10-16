@@ -406,8 +406,13 @@ const ETAPAS = {
   anotando:     { texto: "Calculando posiciones",   marca: 4 },
   generando:    { texto: "Dibujando el PDF",        marca: 6 },
   listo:        { texto: "Listo",                   marca: 7 },
-  error:        { texto: "No ha salido",            marca: 0 }
+  error:        { texto: "No ha salido",            marca: 0 },
+  cancelado:    { texto: "Cancelado",               marca: 0 }
 };
+
+// Estados en los que todavía se puede cancelar.
+const EN_MARCHA = ["en_cola", "preparando", "reconociendo", "anotando",
+                   "generando"];
 
 const zona = document.getElementById("zona");
 const fichero = document.getElementById("fichero");
@@ -493,7 +498,36 @@ async function refrescar() {
     };
   });
 
-  const activos = trabajos.some(t => !["listo", "error"].includes(t.estado));
+  lista.querySelectorAll("[data-cancelar]").forEach(b => {
+    b.onclick = async () => {
+      b.disabled = true;
+      b.textContent = "Cancelando…";
+      try {
+        await fetch("/api/trabajos/" + b.dataset.cancelar + "/cancelar",
+                    { method: "POST" });
+      } finally {
+        refrescar();
+      }
+    };
+  });
+
+  // Volver a lanzar es subir otra vez el mismo PDF con los mismos ajustes,
+  // así que basta con reenviar el formulario desde el servidor... pero no
+  // hay tal cosa: se vuelve a encolar el trabajo que ya existe.
+  lista.querySelectorAll("[data-reintentar]").forEach(b => {
+    b.onclick = async () => {
+      b.disabled = true;
+      b.textContent = "Reencolando…";
+      try {
+        await fetch("/api/trabajos/" + b.dataset.reintentar + "/reintentar",
+                    { method: "POST" });
+      } finally {
+        refrescar();
+      }
+    };
+  });
+
+  const activos = trabajos.some(t => EN_MARCHA.includes(t.estado));
   clearTimeout(temporizador);
   if (activos) temporizador = setTimeout(refrescar, 2500);
 }
@@ -510,9 +544,12 @@ function pintar(t) {
 
   let cuerpo = "";
 
-  if (t.estado === "error") {
-    cuerpo = `<p class="fallo">${escapar(t.error)}</p>
+  if (t.estado === "error" || t.estado === "cancelado") {
+    cuerpo = `<p class="${t.estado === "error" ? "fallo" : ""}"
+        style="${t.estado === "cancelado" ? "color:var(--tinta-media)" : ""}"
+        >${escapar(t.error || "")}</p>
       <div class="acciones">
+        <button class="boton" data-reintentar="${t.id}">Volver a intentarlo</button>
         <button class="boton secundario" data-borrar="${t.id}">Quitar de la lista</button>
       </div>`;
   } else if (t.estado === "listo") {
@@ -554,6 +591,9 @@ function pintar(t) {
       <div class="vara">
         <div class="corredera" style="left:${izquierda}%"></div>
         <div class="marcas">${[1,2,3,4,5,6,7].map(n => `<i>${n}</i>`).join("")}</div>
+      </div>
+      <div class="acciones">
+        <button class="boton secundario" data-cancelar="${t.id}">Cancelar</button>
       </div>`;
   }
 

@@ -173,6 +173,7 @@ let hoja = null;
 let sucio = false;
 let ficha = null;
 
+const $ = (sel) => document.querySelector(sel);
 const contenido = $("#contenido");
 
 // Puntos de PDF por píxel de pantalla. Todas las páginas usan el mismo,
@@ -214,8 +215,6 @@ function cambiarZoom(factor) {
   cerrarFicha();
   aplicarZoom(true);
 }
-
-const $ = (sel) => document.querySelector(sel);
 
 function avisar(texto) {
   const barra = $("#aviso");

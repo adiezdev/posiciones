@@ -27,7 +27,9 @@ from typing import Dict, List, Optional
 # Estados en los que hay trabajo por hacer. Si el proceso se muere, estos
 # son los que hay que recuperar; el resto ya están cerrados.
 EN_MARCHA = ("en_cola", "preparando", "reconociendo", "anotando", "generando")
-TERMINADOS = ("listo", "error")
+# Un trabajo cancelado está tan terminado como uno con error: no se reintenta
+# al arrancar y se borra con la limpieza por antigüedad.
+TERMINADOS = ("listo", "error", "cancelado")
 
 RETENCION_DIAS = 30
 MAX_REINTENTOS = 2

@@ -45,6 +45,14 @@ def main() -> None:
                 ["pruebas/test_trabajos.py"]):
         fallos.append("test_trabajos")
 
+    if not paso("el JavaScript de las páginas",
+                ["pruebas/test_estaticos.py"]):
+        fallos.append("test_estaticos")
+
+    if not paso("cancelar mata lo que esté corriendo",
+                ["pruebas/test_cancelar.py"]):
+        fallos.append("test_cancelar")
+
     if not paso("enderezar escaneos torcidos",
                 ["pruebas/test_normalizar.py"]):
         fallos.append("test_normalizar")

@@ -28,7 +28,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional
 
 from fastapi import Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
@@ -36,6 +36,7 @@ from starlette.background import BackgroundTask
 from fastapi.staticfiles import StaticFiles
 from music21 import converter
 
+import cancelacion
 import depurar
 import estilo
 import normalizar
@@ -66,8 +67,22 @@ DATOS.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Posiciones de trombón", version="3.0")
 
-_pool = ThreadPoolExecutor(max_workers=1)
+# Cuántas partituras se procesan a la vez. Audiveris se come una CPU
+# entera y bastante memoria, así que esto no se sube a lo loco: en un NAS,
+# tres reconocimientos simultáneos tardan más en total que tres seguidos.
+PARALELOS = max(1, int(os.environ.get("TRABAJOS_PARALELOS", "2")))
+
+_pool = ThreadPoolExecutor(max_workers=PARALELOS)
 _lock = threading.Lock()
+
+# --- cancelar a mitad -------------------------------------------------------
+#
+# La maquinaria vive en cancelacion.py para poder probarla sin levantar
+# FastAPI: lo delicado es matar un proceso que puede llevar media hora
+# corriendo, y eso hay que comprobarlo de verdad, no a ojo.
+
+_cancelaciones = cancelacion.Registro()
+Cancelado = cancelacion.Cancelado
 
 
 # --- persistencia mínima ----------------------------------------------------
@@ -118,7 +133,9 @@ def _compases(ruta: Path) -> int:
 
 
 def _correr(cmd: list, timeout: int, etiqueta: str,
-            tolerar_si: Optional[Path] = None) -> None:
+            tolerar_si: Optional[Path] = None,
+            tid: Optional[str] = None,
+            entorno: Optional[dict] = None) -> None:
     """
     Lanza un proceso externo.
 
@@ -127,17 +144,59 @@ def _correr(cmd: list, timeout: int, etiqueta: str,
     por cosas que no impiden exportar la partitura —una página que no
     entiende, un aviso de fuente— y abortar el trabajo entero por eso era
     tirar a la basura lo que sí había reconocido.
+
+    Con `tid` el proceso queda anotado para poder matarlo si el usuario
+    cancela: no vale con dejar de encadenar pasos, porque el paso que está
+    corriendo puede durar media hora.
     """
+    _cancelaciones.comprobar(tid)
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        proceso = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True,
+                                   env=entorno)
+    except OSError as e:
+        raise RuntimeError(f"{etiqueta} no pudo arrancar: {e}")
+
+    _cancelaciones.vigilar(tid, proceso)
+    try:
+        salida, error = proceso.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
+        proceso.kill()
+        proceso.communicate()
         raise RuntimeError(f"{etiqueta} tardó más de {timeout // 60} minutos y se ha cancelado.")
-    if r.returncode != 0:
-        detalle = (r.stderr or r.stdout or "").strip().splitlines()
+    finally:
+        _cancelaciones.soltar(tid, proceso)
+
+    # Un proceso muerto a propósito no es un fallo del que informar.
+    _cancelaciones.comprobar(tid)
+
+    if proceso.returncode != 0:
+        detalle = (error or salida or "").strip().splitlines()
         cola = " ".join(detalle[-3:])[:400] if detalle else "sin detalle"
         if tolerar_si is not None and any(tolerar_si.rglob("*")):
             return
         raise RuntimeError(f"{etiqueta} no pudo completar el proceso: {cola}")
+
+
+def _entorno_aislado(d: Path) -> dict:
+    """
+    Variables de entorno con la configuración de Audiveris en su propia
+    carpeta.
+
+    Con dos reconocimientos a la vez, los dos escribirían en el mismo sitio
+    de la carpeta del usuario. No está dicho que se estorben, pero el
+    remedio cuesta tres líneas y el fallo sería de los difíciles de ver:
+    aparecería solo cuando coinciden dos trabajos.
+    """
+    propio = d / "audiveris"
+    propio.mkdir(exist_ok=True)
+    entorno = dict(os.environ)
+    entorno.update({
+        "XDG_CONFIG_HOME": str(propio / "config"),
+        "XDG_DATA_HOME": str(propio / "datos"),
+        "XDG_CACHE_HOME": str(propio / "cache"),
+    })
+    return entorno
 
 
 def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
@@ -147,6 +206,8 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
               lectura: str = "auto") -> None:
     d = DATOS / tid
     try:
+        # Puede haberse cancelado mientras esperaba en la cola.
+        _cancelaciones.comprobar(tid)
         datos = json.loads((d / "estado.json").read_text(encoding="utf-8"))
         pdf_in = d / datos["archivo"]
         reglas = CRITERIOS.get(criterio, CRITERIOS["equilibrado"])
@@ -166,6 +227,7 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
                  enderezado=informe.rasterizado,
                  aviso_entrada=informe.aviso)
 
+        _cancelaciones.comprobar(tid)
         _guardar(tid, estado="reconociendo")
         export = d / "export"
         export.mkdir(exist_ok=True)
@@ -174,7 +236,7 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
         _correr([AUDIVERIS, "-batch", "-export", "-save",
                  "-output", str(export), str(pdf_in)],
                 TIMEOUT_OMR, "El reconocimiento de la partitura",
-                tolerar_si=export)
+                tolerar_si=export, tid=tid, entorno=_entorno_aislado(d))
 
         encontrados = sorted(export.rglob("*.mxl")) or sorted(export.rglob("*.xml"))
         if not encontrados:
@@ -211,6 +273,7 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
                                         pdf=pdf_in, libro_omr=libro,
                                         lectura=lectura)
             if plano is not None:
+                _cancelaciones.comprobar(tid)
                 _guardar(tid, estado="generando")
                 pdf_out = d / "resultado.pdf"
                 diag_paginas: list = []
@@ -270,6 +333,7 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
         papel = f"A4 {'horizontal' if apaisado else 'vertical'} " \
                 f"({ancho_mm:.0f} x {alto_mm:.0f} mm)"
 
+        _cancelaciones.comprobar(tid)
         _guardar(tid, estado="anotando", titulo=titulo,
                  apaisado=apaisado, papel=papel)
         score = converter.parse(str(crudo))
@@ -293,12 +357,12 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
         # solo entonces generamos el PDF.
         nativo = d / "intermedio.mscx"
         _correr(["xvfb-run", "-a", MSCORE, "-o", str(nativo), str(xml)],
-                TIMEOUT_RENDER, "La conversión intermedia")
+                TIMEOUT_RENDER, "La conversión intermedia", tid=tid)
         aplicados = estilo.aplicar_a_mscx(nativo, apaisado=apaisado)
         _guardar(tid, ancho_util_mm=round(
             float(aplicados["pagePrintableWidth"]) * 25.4))
         _correr(["xvfb-run", "-a", MSCORE, "-o", str(pdf_out), str(nativo)],
-                TIMEOUT_RENDER, "La generación del PDF")
+                TIMEOUT_RENDER, "La generación del PDF", tid=tid)
         if not pdf_out.exists():
             raise RuntimeError("La generación del PDF terminó sin crear el archivo.")
 
@@ -310,8 +374,21 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
             avisos=[{"gravedad": a.gravedad, "parte": a.parte,
                      "compas": str(a.compas), "texto": a.texto} for a in avisos],
         )
+    except Cancelado:
+        _guardar(tid, estado="cancelado",
+                 error="Lo has cancelado tú. El PDF original sigue aquí: "
+                       "puedes volver a lanzarlo cuando quieras.")
     except Exception as e:  # noqa: BLE001
-        _guardar(tid, estado="error", error=str(e))
+        if _cancelaciones.pedido(tid):
+            # Matar el proceso de fuera suele hacer que el paso falle con
+            # algún error raro; lo que vale es que lo pidió el usuario.
+            _guardar(tid, estado="cancelado",
+                     error="Lo has cancelado tú. El PDF original sigue aquí: "
+                           "puedes volver a lanzarlo cuando quieras.")
+        else:
+            _guardar(tid, estado="error", error=str(e))
+    finally:
+        _cancelaciones.olvidar(tid)
 
 
 def _encolar(t: dict) -> None:
@@ -358,6 +435,7 @@ def salud() -> dict:
         "datos": str(DATOS),
         "version": VERSION,
         "en_marcha": len(trabajos.pendientes(DATOS)),
+        "paralelos": PARALELOS,
     }
 
 
@@ -506,9 +584,59 @@ def borrar_terminados() -> dict:
     return {"borrados": borrados}
 
 
+@app.post("/api/trabajos/{tid}/cancelar")
+def cancelar(tid: str) -> dict:
+    """
+    Para un trabajo a mitad.
+
+    Si todavía está en la cola basta con marcarlo. Si ya está corriendo hay
+    que matar el proceso: el paso en marcha puede ser un reconocimiento de
+    media hora y esperar a que termine para "cancelarlo" no es cancelar
+    nada.
+
+    No se borra nada: el PDF original se queda y el trabajo se puede volver
+    a lanzar.
+    """
+    datos = _leer(tid)
+    estado = datos.get("estado")
+    if estado in trabajos.TERMINADOS:
+        return {"cancelado": False, "estado": estado,
+                "detalle": "Ese trabajo ya había terminado."}
+
+    matado = _cancelaciones.cancelar(tid)
+    # El hilo que lo esté procesando se dará cuenta y lo dejará en
+    # "cancelado"; si estaba en cola, lo verá al empezar. Lo escribimos
+    # también aquí para que la web lo refleje ya.
+    _guardar(tid, estado="cancelado",
+             error="Lo has cancelado tú. El PDF original sigue aquí: "
+                   "puedes volver a lanzarlo cuando quieras.")
+    return {"cancelado": True, "estaba_corriendo": matado}
+
+
+@app.post("/api/trabajos/{tid}/reintentar")
+def reintentar(tid: str) -> dict:
+    """
+    Vuelve a encolar un trabajo que falló o se canceló.
+
+    El PDF original y los ajustes siguen ahí, así que no hace falta volver
+    a subirlo: es el mismo trabajo otra vez desde el principio.
+    """
+    datos = _leer(tid)
+    if datos.get("estado") in trabajos.EN_MARCHA:
+        return {"reencolado": False, "detalle": "Ese trabajo ya está en marcha."}
+    _cancelaciones.olvidar(tid)
+    actual = _guardar(tid, estado="en_cola", error=None, intentos=0)
+    _encolar(actual)
+    return {"reencolado": True}
+
+
 @app.delete("/api/trabajos/{tid}")
 def borrar(tid: str) -> dict:
+    # Si estaba corriendo, primero se para: borrarle la carpeta a un
+    # proceso vivo solo sirve para que falle de una forma rara.
+    _cancelaciones.cancelar(tid)
     shutil.rmtree(_dir(tid), ignore_errors=True)
+    _cancelaciones.olvidar(tid)
     return {"borrado": tid}
 
 
