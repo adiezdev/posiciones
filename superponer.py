@@ -923,7 +923,42 @@ def _por_pagina(sistemas: List[dict]) -> Dict[int, List[int]]:
 # desviada un 10%. En vez de fiarnos, miramos el PDF y localizamos las líneas.
 
 FRANJAS = ((0.30, 0.70), (0.20, 0.80), (0.40, 0.60))
-UMBRAL_TINTA = 200
+UMBRAL_TINTA = 200          # solo como red: lo normal es calcularlo
+
+
+def umbral_tinta(a) -> int:
+    """
+    A partir de qué gris consideramos que hay tinta, según la página.
+
+    Con un umbral fijo se pierden las líneas de pentagrama de cualquier
+    partitura que haya pasado por un escáner: una línea de medio punto
+    rasterizada y suavizada sale en gris claro, por encima del corte, y
+    entonces la página no tiene pentagramas que detectar y todo se va al
+    traste. Lo mismo pasa con una fotocopia floja.
+
+    Se calcula por Otsu, que parte el histograma en dos grupos buscando la
+    separación que mejor los distingue. En un PDF de tinta negra da casi lo
+    mismo que antes; en un escaneo desvaído, sube el corte y las líneas
+    vuelven a aparecer.
+    """
+    import numpy as np
+
+    hist = np.bincount(np.asarray(a).ravel(), minlength=256).astype(np.float64)
+    total = hist.sum()
+    if total <= 0:
+        return UMBRAL_TINTA
+    niveles = np.arange(256, dtype=np.float64)
+    peso = np.cumsum(hist)
+    media = np.cumsum(hist * niveles)
+    media_total = media[-1]
+    resto = total - peso
+    with np.errstate(divide="ignore", invalid="ignore"):
+        entre = (media_total * peso - total * media) ** 2 / (peso * resto)
+    entre[~np.isfinite(entre)] = -1.0
+    corte = int(np.argmax(entre))
+    # Ni tan bajo que solo vea el negro puro ni tan alto que el papel
+    # cuente como tinta.
+    return min(max(corte, 90), 245)
 FRACCIONES = (0.70, 0.60, 0.50, 0.40, 0.30, 0.22)
 REGULARIDAD = 2.2          # cuánto pueden diferir los espacios de un pentagrama
 
@@ -945,7 +980,8 @@ def _agrupar_lineas(tinta, alto_px: float, px_por_pt: float,
     return [(g[0] + g[-1]) / 2 / px_por_pt for g in grupos]
 
 
-def _extremos(a, sup_px: int, inf_px: int, px_por_pt: float) -> Tuple[float, float]:
+def _extremos(a, sup_px: int, inf_px: int, px_por_pt: float,
+              umbral: int = UMBRAL_TINTA) -> Tuple[float, float]:
     """
     Dónde empieza y acaba la línea del pentagrama, en puntos.
 
@@ -973,7 +1009,7 @@ def _extremos(a, sup_px: int, inf_px: int, px_por_pt: float) -> Tuple[float, flo
 
     candidatos = []
     for y in (sup_px, inf_px):
-        banda = a[max(y - 1, 0):y + 2, :] < UMBRAL_TINTA
+        banda = a[max(y - 1, 0):y + 2, :] < umbral
         if banda.size:
             candidatos.append(tramo(banda.any(axis=0)))
 
@@ -1107,12 +1143,19 @@ def detectar_pentagramas(pdf: Path, indice: int, alto_pt: float,
     a = np.asarray(imagen)
     alto_px, ancho_px = a.shape
     px_por_pt = alto_px / alto_pt
+    umbral = umbral_tinta(a)
 
     candidatos: List[List[Tuple[float, float]]] = []
     for franja in FRANJAS:
         i, j = int(ancho_px * franja[0]), int(ancho_px * franja[1])
-        tinta = (a[:, i:j] < UMBRAL_TINTA).sum(axis=1)
-        if tinta.max() == 0:
+        # Oscuridad acumulada por fila, SIN binarizar. Binarizar aquí era
+        # el problema: una línea de pentagrama de medio punto que ha pasado
+        # por un escáner sale en gris claro, se queda por encima de
+        # cualquier corte razonable y la página se queda sin pentagramas.
+        # Como después se busca el máximo relativo, da igual lo pálida que
+        # sea la línea mientras sea más oscura que el papel de al lado.
+        tinta = (255 - a[:, i:j].astype(np.int32)).sum(axis=1)
+        if tinta.max() <= 0:
             continue
         for fraccion in FRACCIONES:
             p = _a_pentagramas(_agrupar_lineas(tinta, alto_px, px_por_pt, fraccion))
@@ -1120,13 +1163,15 @@ def detectar_pentagramas(pdf: Path, indice: int, alto_pt: float,
                 continue
             if esperados is not None and len(p) == esperados:
                 hallado = [(sup, inf) + _extremos(a, int(sup * px_por_pt),
-                                                  int(inf * px_por_pt), px_por_pt)
+                                                  int(inf * px_por_pt),
+                                                  px_por_pt, umbral)
                            for sup, inf in p]
                 _CACHE_PENT[clave] = hallado
                 return hallado
             candidatos.append(
                 [(sup, inf) + _extremos(a, int(sup * px_por_pt),
-                                        int(inf * px_por_pt), px_por_pt)
+                                        int(inf * px_por_pt), px_por_pt,
+                                        umbral)
                  for sup, inf in p])
 
     hallado = ([] if esperados is not None
@@ -1207,7 +1252,7 @@ def _cabezas(a, sup: float, inf: float, izq: float, der: float,
     if y1 <= y0 or x1 <= x0:
         return []
 
-    tinta = a[y0:y1, x0:x1] < UMBRAL_TINTA
+    tinta = a[y0:y1, x0:x1] < umbral_tinta(a[y0:y1, x0:x1])
     if not tinta.any():
         return []
     cuerpo = tinta & ~(tinta.sum(axis=1) > 0.55 * tinta.shape[1])[:, None]

@@ -39,6 +39,7 @@ from fastapi.staticfiles import StaticFiles
 from music21 import converter
 
 import estilo
+import normalizar
 import omr
 import partitura
 import superponer
@@ -142,6 +143,19 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
         reglas = CRITERIOS.get(criterio, CRITERIOS["equilibrado"])
         cercanas = reglas["preferir_cercanas"]
         peso = reglas["peso"]
+
+        # Arreglar la entrada antes de que la vea Audiveris. Una fotocopia
+        # torcida dos grados le estropea la detección de pentagramas y a
+        # partir de ahí falla todo lo demás. Si no hay nada que corregir,
+        # esto copia el archivo y ya está.
+        _guardar(tid, estado="preparando")
+        limpio = d / "normalizado.pdf"
+        informe = normalizar.normalizar(pdf_in, limpio)
+        if informe.cambiado:
+            pdf_in = limpio
+        _guardar(tid, entrada=informe.resumen(),
+                 enderezado=informe.rasterizado,
+                 aviso_entrada=informe.aviso)
 
         _guardar(tid, estado="reconociendo")
         export = d / "export"

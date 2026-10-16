@@ -3,6 +3,130 @@
   "caso": "base",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
+  "notas_omr": 131,
+  "marcas": 131,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 131,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 131
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 2,
+  "paginas_con_marcas": 2,
+  "paginas_medidas": 2,
+  "medido": true,
+  "cobertura": 1.0,
+  "dudosas": 0,
+  "lectura": "auto",
+  "semitonos": 0,
+  "omr": false,
+  "paginas_con_omr": 0,
+  "comparacion": {
+   "notas_verdad": 131,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 0.645,
+   "error_max_pt": 0.659,
+   "espacio_pt": 4.961,
+   "aciertos": 131,
+   "tasa_acierto": 1.0,
+   "numeros_comprobados": 131,
+   "numeros_posibles": 131,
+   "tasa_numero": 1.0
+  },
+  "segundos": 0.4
+ },
+ {
+  "caso": "una-pagina",
+  "ok": true,
+  "motivo": null,
+  "inclinacion": 0.0,
+  "notas_omr": 99,
+  "marcas": 99,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 99,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 99
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 1,
+  "paginas_con_marcas": 1,
+  "paginas_medidas": 1,
+  "medido": true,
+  "cobertura": 1.0,
+  "dudosas": 0,
+  "lectura": "auto",
+  "semitonos": 0,
+  "omr": false,
+  "paginas_con_omr": 0,
+  "comparacion": {
+   "notas_verdad": 99,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 0.645,
+   "error_max_pt": 0.659,
+   "espacio_pt": 4.961,
+   "aciertos": 99,
+   "tasa_acierto": 1.0,
+   "numeros_comprobados": 99,
+   "numeros_posibles": 99,
+   "tasa_numero": 1.0
+  },
+  "segundos": 0.2
+ },
+ {
+  "caso": "apretada",
+  "ok": true,
+  "motivo": null,
+  "inclinacion": 0.0,
+  "notas_omr": 295,
+  "marcas": 295,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 295,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 295
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 2,
+  "paginas_con_marcas": 2,
+  "paginas_medidas": 2,
+  "medido": true,
+  "cobertura": 1.0,
+  "dudosas": 0,
+  "lectura": "auto",
+  "semitonos": 0,
+  "omr": false,
+  "paginas_con_omr": 0,
+  "comparacion": {
+   "notas_verdad": 295,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.514,
+   "error_p95_pt": 0.647,
+   "error_max_pt": 0.658,
+   "espacio_pt": 4.961,
+   "aciertos": 295,
+   "tasa_acierto": 1.0,
+   "numeros_comprobados": 295,
+   "numeros_posibles": 295,
+   "tasa_numero": 1.0
+  },
+  "segundos": 0.4
+ },
+ {
+  "caso": "girada-90",
+  "ok": true,
+  "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -40,129 +164,10 @@
   "segundos": 0.3
  },
  {
-  "caso": "una-pagina",
-  "ok": true,
-  "motivo": null,
-  "notas_omr": 99,
-  "marcas": 99,
-  "sin_x": 0,
-  "estimadas": 0,
-  "estampadas": 99,
-  "descartadas": 0,
-  "estados": {
-   "puesta": 99
-  },
-  "modo_x": "medida",
-  "encaje": 1.0,
-  "paginas": 1,
-  "paginas_con_marcas": 1,
-  "paginas_medidas": 1,
-  "medido": true,
-  "cobertura": 1.0,
-  "dudosas": 0,
-  "lectura": "auto",
-  "semitonos": 0,
-  "omr": false,
-  "paginas_con_omr": 0,
-  "comparacion": {
-   "notas_verdad": 99,
-   "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.645,
-   "error_max_pt": 0.659,
-   "espacio_pt": 4.961,
-   "aciertos": 99,
-   "tasa_acierto": 1.0,
-   "numeros_comprobados": 99,
-   "numeros_posibles": 99,
-   "tasa_numero": 1.0
-  },
-  "segundos": 0.1
- },
- {
-  "caso": "apretada",
-  "ok": true,
-  "motivo": null,
-  "notas_omr": 295,
-  "marcas": 295,
-  "sin_x": 0,
-  "estimadas": 0,
-  "estampadas": 295,
-  "descartadas": 0,
-  "estados": {
-   "puesta": 295
-  },
-  "modo_x": "medida",
-  "encaje": 1.0,
-  "paginas": 2,
-  "paginas_con_marcas": 2,
-  "paginas_medidas": 2,
-  "medido": true,
-  "cobertura": 1.0,
-  "dudosas": 0,
-  "lectura": "auto",
-  "semitonos": 0,
-  "omr": false,
-  "paginas_con_omr": 0,
-  "comparacion": {
-   "notas_verdad": 295,
-   "sin_numero": 0,
-   "error_mediano_pt": 0.514,
-   "error_p95_pt": 0.647,
-   "error_max_pt": 0.658,
-   "espacio_pt": 4.961,
-   "aciertos": 295,
-   "tasa_acierto": 1.0,
-   "numeros_comprobados": 295,
-   "numeros_posibles": 295,
-   "tasa_numero": 1.0
-  },
-  "segundos": 0.2
- },
- {
-  "caso": "girada-90",
-  "ok": true,
-  "motivo": null,
-  "notas_omr": 131,
-  "marcas": 131,
-  "sin_x": 0,
-  "estimadas": 0,
-  "estampadas": 131,
-  "descartadas": 0,
-  "estados": {
-   "puesta": 131
-  },
-  "modo_x": "medida",
-  "encaje": 1.0,
-  "paginas": 2,
-  "paginas_con_marcas": 2,
-  "paginas_medidas": 2,
-  "medido": true,
-  "cobertura": 1.0,
-  "dudosas": 0,
-  "lectura": "auto",
-  "semitonos": 0,
-  "omr": false,
-  "paginas_con_omr": 0,
-  "comparacion": {
-   "notas_verdad": 131,
-   "sin_numero": 0,
-   "error_mediano_pt": 0.52,
-   "error_p95_pt": 0.645,
-   "error_max_pt": 0.659,
-   "espacio_pt": 4.961,
-   "aciertos": 131,
-   "tasa_acierto": 1.0,
-   "numeros_comprobados": 131,
-   "numeros_posibles": 131,
-   "tasa_numero": 1.0
-  },
-  "segundos": 0.1
- },
- {
   "caso": "girada-180",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -197,12 +202,13 @@
    "numeros_posibles": 131,
    "tasa_numero": 1.0
   },
-  "segundos": 0.2
+  "segundos": 0.3
  },
  {
   "caso": "girada-270",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -237,12 +243,13 @@
    "numeros_posibles": 131,
    "tasa_numero": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.3
  },
  {
   "caso": "recortada",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -277,12 +284,13 @@
    "numeros_posibles": 131,
    "tasa_numero": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.3
  },
  {
   "caso": "recortada-y-girada",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -317,12 +325,13 @@
    "numeros_posibles": 131,
    "tasa_numero": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.3
  },
  {
   "caso": "sin-coordenadas-20",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -357,12 +366,13 @@
    "numeros_posibles": 130,
    "tasa_numero": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.3
  },
  {
   "caso": "sin-coordenadas-50",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -397,12 +407,13 @@
    "numeros_posibles": 130,
    "tasa_numero": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.3
  },
  {
   "caso": "sin-coordenadas-80",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -437,12 +448,13 @@
    "numeros_posibles": 128,
    "tasa_numero": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.3
  },
  {
   "caso": "ritmo-plano",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 128,
   "marcas": 128,
   "sin_x": 0,
@@ -477,12 +489,13 @@
    "numeros_posibles": 128,
    "tasa_numero": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.3
  },
  {
   "caso": "borde-negro",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -517,12 +530,13 @@
    "numeros_posibles": 2,
    "tasa_numero": 0.1538
   },
-  "segundos": 0.1
+  "segundos": 0.4
  },
  {
   "caso": "borde-negro-con-omr",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -557,12 +571,13 @@
    "numeros_posibles": 131,
    "tasa_numero": 1.0
   },
-  "segundos": 0.2
+  "segundos": 0.4
  },
  {
   "caso": "base-con-omr",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -597,12 +612,13 @@
    "numeros_posibles": 131,
    "tasa_numero": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.3
  },
  {
   "caso": "clave-tenor",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -637,12 +653,13 @@
    "numeros_posibles": 131,
    "tasa_numero": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.3
  },
  {
   "caso": "sib-clave-sol",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -677,12 +694,13 @@
    "numeros_posibles": 131,
    "tasa_numero": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.3
  },
  {
   "caso": "cabezas-de-texto",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -717,12 +735,13 @@
    "numeros_posibles": 131,
    "tasa_numero": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.3
  },
  {
   "caso": "cabezas-de-texto-sin-dx",
   "ok": true,
   "motivo": null,
+  "inclinacion": 0.0,
   "notas_omr": 131,
   "marcas": 131,
   "sin_x": 0,
@@ -730,8 +749,8 @@
   "estampadas": 131,
   "descartadas": 0,
   "estados": {
-   "ajustada": 123,
-   "puesta": 8
+   "ajustada": 124,
+   "puesta": 7
   },
   "modo_x": "medida",
   "encaje": 1.0,
@@ -758,6 +777,88 @@
    "numeros_posibles": 131,
    "tasa_numero": 1.0
   },
-  "segundos": 0.1
+  "segundos": 0.3
+ },
+ {
+  "caso": "escaneo-torcido",
+  "ok": true,
+  "motivo": null,
+  "inclinacion": 1.4,
+  "notas_omr": 64,
+  "marcas": 64,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 64,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 64
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 1,
+  "paginas_con_marcas": 1,
+  "paginas_medidas": 1,
+  "medido": true,
+  "cobertura": 1.0,
+  "dudosas": 0,
+  "lectura": "auto",
+  "semitonos": 0,
+  "omr": false,
+  "paginas_con_omr": 0,
+  "comparacion": {
+   "notas_verdad": 64,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 0.642,
+   "error_max_pt": 0.659,
+   "espacio_pt": 4.961,
+   "aciertos": 64,
+   "tasa_acierto": 1.0,
+   "numeros_comprobados": 64,
+   "numeros_posibles": 64,
+   "tasa_numero": 1.0
+  },
+  "segundos": 0.6
+ },
+ {
+  "caso": "escaneo-derecho",
+  "ok": true,
+  "motivo": null,
+  "inclinacion": 0.0,
+  "notas_omr": 64,
+  "marcas": 64,
+  "sin_x": 0,
+  "estimadas": 0,
+  "estampadas": 64,
+  "descartadas": 0,
+  "estados": {
+   "puesta": 64
+  },
+  "modo_x": "medida",
+  "encaje": 1.0,
+  "paginas": 1,
+  "paginas_con_marcas": 1,
+  "paginas_medidas": 1,
+  "medido": true,
+  "cobertura": 1.0,
+  "dudosas": 0,
+  "lectura": "auto",
+  "semitonos": 0,
+  "omr": false,
+  "paginas_con_omr": 0,
+  "comparacion": {
+   "notas_verdad": 64,
+   "sin_numero": 0,
+   "error_mediano_pt": 0.52,
+   "error_p95_pt": 0.642,
+   "error_max_pt": 0.659,
+   "espacio_pt": 4.961,
+   "aciertos": 64,
+   "tasa_acierto": 1.0,
+   "numeros_comprobados": 64,
+   "numeros_posibles": 64,
+   "tasa_numero": 1.0
+  },
+  "segundos": 0.2
  }
 ]

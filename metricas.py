@@ -71,10 +71,15 @@ BATERIA = [
     # cabezas vectoriales no llega a ejecutarse.
     ("cabezas-de-texto", {"cabezas_texto": True}),
     ("cabezas-de-texto-sin-dx", {"cabezas_texto": True, "sin_dx": 0.50}),
+    # Fotocopia torcida: la página se rasteriza y se gira 1,4°. La verdad
+    # sigue siendo la de la página derecha, así que esto mide si
+    # normalizar.py la devuelve a su sitio.
+    ("escaneo-torcido", {"inclinar": 1.4, "paginas": 1}),
+    ("escaneo-derecho", {"inclinar": 0.01, "paginas": 1}),
 ]
 
 CABECERA = ("caso", "notas", "estamp", "cob%", "dud", "err_med",
-            "err_p95", "ok%", "num%", "pent", "geom", "s")
+            "err_p95", "ok%", "num%", "incl", "pent", "geom", "s")
 
 
 def generar_bateria(destino: Path) -> List[Path]:
@@ -136,8 +141,8 @@ def correr_audiveris(pdf: Path, destino: Path) -> Optional[Path]:
     return max(salidas, key=compases)
 
 
-def medir(carpeta: Path, con_omr: bool = False,
-          con_debug: bool = False) -> dict:
+def medir(carpeta: Path, con_omr: bool = False, con_debug: bool = False,
+          normalizar_antes: bool = True) -> dict:
     """Mide un caso. Nunca lanza: un caso roto es un resultado, no un corte."""
     nombre = carpeta.name
     inicio = time.time()
@@ -152,6 +157,16 @@ def medir(carpeta: Path, con_omr: bool = False,
     if xml is None:
         return {"caso": nombre, "ok": False, "motivo": "sin_export_musicxml"}
 
+    # Mismo orden que en producción: primero se arregla la entrada.
+    inclinacion = 0.0
+    if normalizar_antes:
+        import normalizar as _norm
+        corregido = carpeta / "normalizado.pdf"
+        inf = _norm.normalizar(pdf, corregido)
+        inclinacion = max((abs(x.inclinacion) for x in inf.paginas),
+                          default=0.0)
+        pdf = corregido
+
     omr_ruta = carpeta / "libro.omr"
     try:
         analisis = depurar.analizar(
@@ -164,7 +179,8 @@ def medir(carpeta: Path, con_omr: bool = False,
         return {"caso": nombre, "ok": False, "motivo": analisis["motivo"],
                 "segundos": round(time.time() - inicio, 1)}
 
-    fila = {"caso": nombre, "ok": True, "motivo": None}
+    fila = {"caso": nombre, "ok": True, "motivo": None,
+            "inclinacion": round(inclinacion, 2)}
     fila.update(analisis["resumen"])
 
     verdad_ruta = carpeta / "verdad.json"
@@ -187,8 +203,8 @@ def medir(carpeta: Path, con_omr: bool = False,
 
 def _celdas(fila: dict) -> tuple:
     if not fila["ok"]:
-        return (fila["caso"], "-", "-", "-", "-", "-", "-", "-", "-",
-                (fila.get("motivo") or "?")[:22], "-",
+        return (fila["caso"], "-", "-", "-", "-", "-", "-", "-", "-", "-",
+                "-", (fila.get("motivo") or "?")[:22],
                 str(fila.get("segundos", "-")))
     c = fila.get("comparacion") or {}
     return (
@@ -202,6 +218,7 @@ def _celdas(fila: dict) -> tuple:
         ("%.0f" % (100 * c["tasa_acierto"])) if c else "-",
         ("%.0f" % (100 * c["tasa_numero"]))
         if c.get("tasa_numero") is not None else "-",
+        "%.1f" % fila.get("inclinacion", 0.0),
         "%d/%d" % (fila["paginas_medidas"], fila["paginas_con_marcas"]),
         "omr" if fila.get("paginas_con_omr") else "imagen",
         str(fila["segundos"]),
@@ -275,6 +292,8 @@ def main() -> None:
     ap.add_argument("--tolerancia", type=float, default=0.01)
     ap.add_argument("--omr", action="store_true",
                     help="llamar a Audiveris cuando falte el export")
+    ap.add_argument("--sin-normalizar", action="store_true",
+                    help="no pasar por normalizar.py (para medir cuánto aporta)")
     ap.add_argument("--debug", action="store_true",
                     help="escribir también el PDF de diagnóstico de cada caso")
     args = ap.parse_args()
@@ -294,7 +313,8 @@ def main() -> None:
         carpetas += buscar_casos(args.carpeta)
 
     try:
-        filas = [medir(c, con_omr=args.omr, con_debug=args.debug)
+        filas = [medir(c, con_omr=args.omr, con_debug=args.debug,
+                       normalizar_antes=not args.sin_normalizar)
                  for c in carpetas]
     finally:
         if temporal and not args.debug:

@@ -134,7 +134,8 @@ class Caso:
                  sin_dx: float = 0.0, ritmo: bool = True,
                  borde_negro: bool = False, dpi_omr: int = 300,
                  clave: str = "fa", transposicion: str = "ninguna",
-                 cabezas_texto: bool = False, semilla: int = 7):
+                 cabezas_texto: bool = False, inclinar: float = 0.0,
+                 dpi_escaneo: int = 300, semilla: int = 7):
         self.paginas = paginas
         self.sistemas = sistemas
         self.compases = compases
@@ -146,6 +147,8 @@ class Caso:
         self.dpi_omr = dpi_omr
         self.clave = clave
         self.cabezas_texto = cabezas_texto
+        self.inclinar = inclinar
+        self.dpi_escaneo = dpi_escaneo
         self.transposicion = transposicion
         self.semitonos = TRANSPOSICIONES[transposicion]
         self.azar = random.Random(semilla)
@@ -345,6 +348,8 @@ class Caso:
 
         if self.rotate or self.margen_cropbox:
             self._retocar_cajas(destino)
+        if self.inclinar:
+            self._escanear_torcido(destino)
 
     def _cabeza(self, c, nota: dict) -> None:
         """Una cabeza elíptica con su plica, en coordenadas de hoja.
@@ -508,6 +513,47 @@ class Caso:
         ET.ElementTree(raiz).write(str(destino), encoding="UTF-8",
                                    xml_declaration=True)
 
+    def _escanear_torcido(self, destino: Path) -> None:
+        """
+        Convierte el PDF en un escaneo torcido: lo rasteriza y lo gira.
+
+        La verdad NO se toca: sigue siendo la de la página derecha. Eso es
+        justo lo que queremos medir, que `normalizar.py` devuelva la página
+        a su sitio y los números acaben donde tenían que acabar.
+
+        El giro es alrededor del centro de la imagen, que es el mismo punto
+        sobre el que gira la corrección, así que el viaje de ida y vuelta
+        cierra.
+        """
+        import pypdfium2 as pdfium
+        from PIL import Image
+        from reportlab.lib.utils import ImageReader
+        from reportlab.pdfgen import canvas
+
+        doc = pdfium.PdfDocument(str(destino))
+        paginas = []
+        try:
+            for i in range(len(doc)):
+                pag = doc[i]
+                imagen = pag.render(
+                    scale=self.dpi_escaneo / 72.0).to_pil().convert("L")
+                imagen = imagen.rotate(-self.inclinar, resample=Image.BICUBIC,
+                                       expand=False, fillcolor=255)
+                paginas.append((imagen, pag.get_width(), pag.get_height()))
+        finally:
+            doc.close()
+
+        lienzo = None
+        for imagen, ancho, alto in paginas:
+            if lienzo is None:
+                lienzo = canvas.Canvas(str(destino), pagesize=(ancho, alto))
+            else:
+                lienzo.setPageSize((ancho, alto))
+            lienzo.drawImage(ImageReader(imagen), 0, 0, width=ancho, height=alto)
+            lienzo.showPage()
+        if lienzo is not None:
+            lienzo.save()
+
     def escribir_omr(self, destino: Path) -> None:
         """
         Un `.omr` con la pinta del que guarda Audiveris con `-save`.
@@ -575,6 +621,7 @@ class Caso:
             "paginas": self.paginas,
             "sistemas_por_pagina": self.sistemas,
             "rotate": self.rotate,
+            "inclinar": self.inclinar,
             "clave": self.clave,
             "transposicion": self.transposicion,
             "semitonos": self.semitonos,
@@ -619,6 +666,8 @@ def main() -> None:
                     help="todo negras y repartido por igual (prueba fácil)")
     ap.add_argument("--borde-negro", action="store_true",
                     help="franja negra de escáner que rompe la detección por umbral")
+    ap.add_argument("--inclinar", type=float, default=0.0, metavar="GRADOS",
+                    help="rasterizar y torcer la pagina, como una fotocopia")
     ap.add_argument("--cabezas-texto", action="store_true",
                     help="dibujar las cabezas como glifo de texto, no como vector")
     ap.add_argument("--clave", default="fa", choices=sorted(CLAVES),
@@ -633,7 +682,7 @@ def main() -> None:
                 margen_cropbox=args.cropbox, sin_dx=args.sin_dx,
                 ritmo=not args.sin_ritmo, borde_negro=args.borde_negro,
                 clave=args.clave, transposicion=args.transposicion,
-                cabezas_texto=args.cabezas_texto)
+                cabezas_texto=args.cabezas_texto, inclinar=args.inclinar)
     rutas = caso.generar(args.carpeta)
     print("%d notas, %d pentagramas, %d páginas"
           % (len(caso.notas), len(caso.pentagramas), caso.paginas))

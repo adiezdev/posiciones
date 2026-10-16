@@ -406,6 +406,7 @@
 <script>
 const ETAPAS = {
   en_cola:      { texto: "En cola",                 marca: 0 },
+  preparando:   { texto: "Revisando el PDF",        marca: 1 },
   reconociendo: { texto: "Leyendo la partitura",    marca: 2 },
   anotando:     { texto: "Calculando posiciones",   marca: 4 },
   generando:    { texto: "Dibujando el PDF",        marca: 6 },
@@ -534,9 +535,12 @@ function pintar(t) {
     const coord = t.modo_x
       ? ` Coordenadas relativas al ${t.modo_x} (encaje ${t.encaje}%).` : "";
     const geom = t.geometria ? ` Geometría: ${t.geometria}.` : "";
+    const entrada = t.enderezado
+      ? " La partitura venía torcida y se ha enderezado antes de leerla."
+      : "";
 
     cuerpo = `
-      <p style="margin:14px 0 0;color:var(--tinta-media);font-size:.9rem">${escapar(resumen + dudosas + papel + coord + geom + nota)}</p>
+      <p style="margin:14px 0 0;color:var(--tinta-media);font-size:.9rem">${escapar(resumen + dudosas + entrada + papel + coord + geom + nota)}</p>
       <div class="acciones">
         <a class="boton" href="/api/trabajos/${t.id}/pdf">Descargar el PDF</a>
         <a class="boton secundario" href="/api/trabajos/${t.id}/musicxml">Descargar MusicXML</a>
