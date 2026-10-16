@@ -66,6 +66,17 @@ LECTURAS = {
 }
 
 
+# Hasta qué punto nos fiamos de un número. No se descarta nada por tener
+# poca confianza: se estampa más claro, para que al leer la partitura se vea
+# de un vistazo qué conviene repasar. Un número que falta no se nota; uno
+# gris sí.
+CONFIANZA_X_ESTIMADA = 0.75    # la coordenada la hemos deducido nosotros
+CONFIANZA_FANTASMA = 0.50      # la nota no está en el MusicXML
+FACTOR_SIN_MEDIR = 0.80        # la página no tiene pentagramas fiables
+FACTOR_SIN_CABEZA = 0.85       # no hay cabeza dibujada que lo confirme
+CONFIANZA_DUDOSA = 0.70        # por debajo de esto se cuenta como "a repasar"
+
+
 @dataclass
 class Marca:
     """Un número listo para estampar, en décimos desde la esquina superior."""
@@ -75,6 +86,7 @@ class Marca:
     texto: str
     sistema: int = 0
     estimada: bool = False   # la nota la hemos leído del PDF, no del OMR
+    confianza: float = 1.0
 
 
 @dataclass
@@ -481,10 +493,19 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     raiz = arbol.getroot()
 
     partes = raiz.findall("part")
-    if len(partes) != 1:
-        # Con varias partes haría falta seguir también la separación entre
-        # pentagramas; no es el caso de una particella de trombón.
-        return rendirse("varias_partes:%d" % len(partes))
+    if not partes:
+        return rendirse("sin_partes")
+    if len(partes) > 1:
+        # Con varias partes habría que seguir también la separación entre
+        # pentagramas. Pero lo normal cuando Audiveris saca varias de una
+        # particella es que sobren: una con la música y el resto vacías de
+        # un pentagrama mal segmentado. Antes se renunciaba y la partitura
+        # se redibujaba entera; ahora nos quedamos con la que tiene notas,
+        # y solo si hay más de una con música se deja estar.
+        con_notas = [p for p in partes if p.find(".//note/pitch") is not None]
+        if len(con_notas) != 1:
+            return rendirse("varias_partes_con_musica:%d" % len(con_notas))
+        partes = con_notas
 
     defaults = raiz.find("defaults")
     if defaults is None:
@@ -747,13 +768,20 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     for r in registros:
         r["y"] = sistemas[r["sistema"]]["y_numeros"] if sistemas else 0.0
 
+    pent_omr = _pentagramas_del_omr(libro_omr, mm_por_decimo, diag)
+
     modo, acierto = _referencias(registros, margen_izq, ancho_pagina)
     if diag is not None:
         diag["modo_x"] = modo
         diag["encaje"] = acierto
-    if acierto < 0.8:
-        # Ninguna interpretación deja los números dentro de la página: mejor
-        # no estampar nada y que quien llame recurra a redibujar.
+    if acierto < 0.8 and not pent_omr:
+        # Ninguna interpretación de las coordenadas deja los números dentro
+        # de la página. Sin nada más de lo que tirar, mejor no estampar y
+        # que quien llame recurra a redibujar.
+        #
+        # Con el .omr delante la cosa cambia: ahí están los pentagramas
+        # medidos por Audiveris, así que los números se pueden recolocar
+        # aunque el MusicXML traiga las coordenadas raras.
         return rendirse("encaje_bajo:%.2f(%s)" % (acierto, modo))
 
     # Fallback dx: para cada sistema, interpolación lineal por offset entre
@@ -802,8 +830,6 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     # metemos en la secuencia para que el solver decida su posición como a
     # cualquier otra. Se estampan en gris, para distinguir lo leído de lo
     # estimado.
-    pent_omr = _pentagramas_del_omr(libro_omr, mm_por_decimo, diag)
-
     por_pag = _por_pagina(sistemas)
     if pdf is not None:
         for ancla, g in _fantasmas(pdf, registros, descansos, sistemas,
@@ -819,10 +845,18 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     # Las notas fuera del alcance del instrumento llevan un "?" en lugar de
     # quedarse sin nada: así se ve que la herramienta las ha leído y que el
     # hueco es intencionado.
+    def confianza(r: dict) -> float:
+        if r.get("estimada"):
+            return CONFIANZA_FANTASMA
+        if r.get("dx_estimada"):
+            return CONFIANZA_X_ESTIMADA
+        return 1.0
+
     marcas = [
         Marca(pagina=r["pagina"], x=r["x"], y=r["y"],
               texto=(p.etiqueta if p is not None else "?"),
-              sistema=r["sistema"], estimada=bool(r.get("estimada")))
+              sistema=r["sistema"], estimada=bool(r.get("estimada")),
+              confianza=confianza(r))
         for r, p in zip(registros, elegidas)
         if r["x"] is not None
     ]
@@ -1690,20 +1724,22 @@ def a_hoja(x_vista: float, y_arriba: float, giro: int,
 
 
 def _ficha_marca(m: Marca, x_bruta: float, x: float,
-                 alturas: Dict[int, float], estado: str) -> dict:
+                 alturas: Dict[int, float], estado: str,
+                 confianza: float = 1.0) -> dict:
     """Qué ha pasado con un número, para el PDF de diagnóstico."""
     return {"id": id(m), "texto": m.texto, "sistema": m.sistema,
             "estimada": m.estimada, "x_omr": x_bruta, "x": x,
-            "y": alturas.get(m.sistema, 0.0), "estado": estado}
+            "y": alturas.get(m.sistema, 0.0), "estado": estado,
+            "confianza": round(confianza, 3)}
 
 
 def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
              tamano_relativo: float = 2.0,
              fraccion_hueco: float = 0.48,
-             diag: Optional[list] = None) -> Tuple[int, bool]:
+             diag: Optional[list] = None) -> Tuple[int, bool, int]:
     """
     Dibuja los números sobre el PDF original. Devuelve (cuántos, si se han
-    usado los pentagramas medidos en el propio PDF).
+    usado los pentagramas medidos en el propio PDF, cuántos son dudosos).
 
     Las X vienen de Audiveris, que en eso acierta. Las Y salen de medir el
     PDF, porque la escala vertical que declara Audiveris no es de fiar.
@@ -1725,6 +1761,7 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
         por_pagina.setdefault(m.pagina, []).append(m)
 
     puestas = 0
+    dudosas = 0
     medido = False
 
     for indice, pagina in enumerate(lector.pages):
@@ -1851,6 +1888,9 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                     x = m.x * fx
                 x_bruta = x
                 estado = "puesta"
+                conf = m.confianza
+                if not medido:
+                    conf *= FACTOR_SIN_MEDIR
                 banda = banda_pent.get(m.sistema)
                 if cabeceas is not None and banda:
                     cerca = [hx for hx, hy in cabeceas
@@ -1878,28 +1918,29 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                         continue
                     else:
                         estado = "sin_cabeza"
+                        conf *= FACTOR_SIN_CABEZA
                     # Una nota leída del MusicXML SIEMPRE se estampa. Que no
                     # encontremos su cabeza es un fallo de nuestra detección
                     # de glifos, no una razón para comerse la nota.
                 if ficha is not None:
                     ficha["notas"].append(
-                        _ficha_marca(m, x_bruta, x, alturas, estado))
-                colocadas.append((m, x))
+                        _ficha_marca(m, x_bruta, x, alturas, estado, conf))
+                colocadas.append((m, x, conf))
 
             # Dos cifras en el mismo punto (una leída y otra estimada) o tres
             # glifos que se creían notas distintas en una cabeza: nos quedamos
             # con una, dando prioridad a la leída del MusicXML.
             colocadas.sort(key=lambda mx: (mx[0].sistema, mx[0].estimada, mx[1]))
             limpias = []
-            for m, x in colocadas:
+            for m, x, conf in colocadas:
                 if (limpias and limpias[-1][0].sistema == m.sistema
                         and abs(limpias[-1][1] - x) < 0.55 * espacio):
                     continue
-                limpias.append((m, x))
+                limpias.append((m, x, conf))
             colocadas = limpias
 
             if ficha is not None:
-                vivas = {id(m) for m, _ in colocadas}
+                vivas = {id(m) for m, _, _ in colocadas}
                 for f in ficha["notas"]:
                     if (f["estado"] != "descartada_sin_cabeza"
                             and f["id"] not in vivas):
@@ -1908,12 +1949,12 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
             cuerpos = {}
             for s in sistemas:
                 suyas = [Marca(m.pagina, x, m.y, m.texto, m.sistema)
-                         for m, x in colocadas if m.sistema == s]
+                         for m, x, _ in colocadas if m.sistema == s]
                 cuerpos[s] = _cuerpo_por_sistema(suyas, espacio)
 
             buffer = BytesIO()
             lienzo = canvas.Canvas(buffer, pagesize=(ancho_caja, alto_caja))
-            for m, x_vista in colocadas:
+            for m, x_vista, conf in colocadas:
                 x_hoja, y_hoja = a_hoja(x_vista, alturas[m.sistema], giro,
                                         ancho_caja, alto_caja, alto_pt,
                                         orig_x, orig_y)
@@ -1922,14 +1963,17 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                 lienzo.translate(x_hoja, y_hoja)
                 if giro:
                     lienzo.rotate(giro)
-                # Lo rellenado por imagen sale en gris: es una buena
-                # estimación, pero no está escrito en el MusicXML.
-                lienzo.setFillGray(0.62 if m.estimada else 0.0)
+                # Cuanta menos confianza, más claro. Un número gris se
+                # lee igual de bien y avisa de que conviene mirarlo; uno
+                # que falta no avisa de nada.
+                lienzo.setFillGray(min(max(1.0 - conf, 0.0), 1.0) * 0.72)
                 lienzo.setFont("Helvetica",
                                cuerpos.get(m.sistema, espacio * tamano_relativo))
                 lienzo.drawCentredString(0, 0, m.texto)
                 lienzo.restoreState()
                 puestas += 1
+                if conf < CONFIANZA_DUDOSA:
+                    dudosas += 1
             lienzo.save()
             buffer.seek(0)
 
@@ -1940,4 +1984,4 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
     with open(pdf_salida, "wb") as f:
         escritor.write(f)
 
-    return puestas, medido
+    return puestas, medido, dudosas

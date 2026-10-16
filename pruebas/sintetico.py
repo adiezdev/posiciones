@@ -51,6 +51,10 @@ DIVISIONES = 4               # por negra: permite corcheas sin decimales
 MEDIA_CABEZA = 6.5           # el mismo valor que usa superponer.py
 ANCHO_CABEZA = 13.0
 ALTO_CABEZA = 10.0
+# Cuerpo de la "o" que hace de cabeza cuando se piden cabezas de texto. A 9
+# puntos su caja mide 4,87 pt de alto, que es casi exactamente un espacio de
+# pentagrama: dentro de lo que `_cabezas_texto` acepta como cabeza.
+CUERPO_CABEZA = 9.0
 
 PASOS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
 LETRAS = "CDEFGAB"
@@ -130,7 +134,7 @@ class Caso:
                  sin_dx: float = 0.0, ritmo: bool = True,
                  borde_negro: bool = False, dpi_omr: int = 300,
                  clave: str = "fa", transposicion: str = "ninguna",
-                 semilla: int = 7):
+                 cabezas_texto: bool = False, semilla: int = 7):
         self.paginas = paginas
         self.sistemas = sistemas
         self.compases = compases
@@ -141,6 +145,7 @@ class Caso:
         self.borde_negro = borde_negro
         self.dpi_omr = dpi_omr
         self.clave = clave
+        self.cabezas_texto = cabezas_texto
         self.transposicion = transposicion
         self.semitonos = TRANSPOSICIONES[transposicion]
         self.azar = random.Random(semilla)
@@ -350,6 +355,30 @@ class Caso:
         cx_pt, cy_pt = nota["x_pt"], nota["y_pt"]
         rx = ANCHO_CABEZA / 2.0 * PT_POR_DECIMO
         ry = ALTO_CABEZA / 2.0 * PT_POR_DECIMO
+
+        if self.cabezas_texto:
+            # Cabezas como glifo de texto, que es como las dibuja cualquier
+            # programa de edición de partituras. Es la única forma de
+            # ejercitar `_cabezas_texto`, la detección que decide si un
+            # número tiene una nota debajo: con cabezas vectoriales esa
+            # ruta no se ejecuta nunca, y es justo la que se comía notas.
+            # Helvetica no tiene glifos de música, pero a la detección le
+            # da igual el carácter: mira el alto y la proporción.
+            px, py = self.a_hoja(cx_pt, cy_pt)
+            c.saveState()
+            c.translate(px, py)
+            if self.rotate:
+                c.rotate(self.rotate)
+            c.setFont("Helvetica", CUERPO_CABEZA)
+            c.drawCentredString(0, -0.271 * CUERPO_CABEZA, "o")
+            c.restoreState()
+            if nota.get("duracion", 1) < 4:
+                a1 = self.a_hoja(cx_pt + rx, cy_pt)
+                a2 = self.a_hoja(cx_pt + rx, cy_pt
+                                 - 3.0 * DECIMOS_PENTAGRAMA / 4.0 * PT_POR_DECIMO)
+                c.setLineWidth(0.7)
+                c.line(a1[0], a1[1], a2[0], a2[1])
+            return
 
         # La elipse se dibuja punto a punto porque hay que girarla con la
         # página; reportlab no sabe dibujar en un sistema girado.
@@ -590,6 +619,8 @@ def main() -> None:
                     help="todo negras y repartido por igual (prueba fácil)")
     ap.add_argument("--borde-negro", action="store_true",
                     help="franja negra de escáner que rompe la detección por umbral")
+    ap.add_argument("--cabezas-texto", action="store_true",
+                    help="dibujar las cabezas como glifo de texto, no como vector")
     ap.add_argument("--clave", default="fa", choices=sorted(CLAVES),
                     help="clave de la particella")
     ap.add_argument("--transposicion", default="ninguna",
@@ -601,7 +632,8 @@ def main() -> None:
                 compases=args.compases, rotate=args.rotate,
                 margen_cropbox=args.cropbox, sin_dx=args.sin_dx,
                 ritmo=not args.sin_ritmo, borde_negro=args.borde_negro,
-                clave=args.clave, transposicion=args.transposicion)
+                clave=args.clave, transposicion=args.transposicion,
+                cabezas_texto=args.cabezas_texto)
     rutas = caso.generar(args.carpeta)
     print("%d notas, %d pentagramas, %d páginas"
           % (len(caso.notas), len(caso.pentagramas), caso.paginas))

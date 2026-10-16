@@ -189,12 +189,13 @@ def _trabajar(tid: str, transpositor: bool, titulo_manual: str,
             if plano is not None:
                 _guardar(tid, estado="generando")
                 pdf_out = d / "resultado.pdf"
-                puestas, medido = superponer.estampar(pdf_in, pdf_out, plano)
+                puestas, medido, dudosas = superponer.estampar(
+                    pdf_in, pdf_out, plano)
 
                 score = converter.parse(str(crudo))
                 avisos = validar(score, transpositor, semitonos)
                 _guardar(
-                    tid, estado="listo", notas=puestas,
+                    tid, estado="listo", notas=puestas, dudosas=dudosas,
                     lectura=lectura, semitonos=semitonos,
                     modo_x=plano.modo_x,
                     geometria=("audiveris" if plano.pentagramas_omr

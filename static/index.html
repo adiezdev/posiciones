@@ -525,14 +525,18 @@ function pintar(t) {
     const resumen = avisos.length === 0
       ? `${t.notas} notas anotadas, sin nada raro.`
       : `${t.notas} notas anotadas. ${errores} puntos a revisar y ${avisos.length - errores} dudas.`;
+    const dudosas = t.dudosas
+      ? ` ${t.dudosas} números salen en gris: la herramienta los ha colocado con menos certeza y conviene mirarlos.`
+      : "";
     const papel = t.papel ? ` Papel: ${t.papel}` +
       (t.ancho_util_mm ? `, ancho útil ${t.ancho_util_mm} mm.` : ".") : "";
     const nota = t.nota_modo ? ` ${t.nota_modo}` : "";
     const coord = t.modo_x
       ? ` Coordenadas relativas al ${t.modo_x} (encaje ${t.encaje}%).` : "";
+    const geom = t.geometria ? ` Geometría: ${t.geometria}.` : "";
 
     cuerpo = `
-      <p style="margin:14px 0 0;color:var(--tinta-media);font-size:.9rem">${escapar(resumen + papel + coord + nota)}</p>
+      <p style="margin:14px 0 0;color:var(--tinta-media);font-size:.9rem">${escapar(resumen + dudosas + papel + coord + geom + nota)}</p>
       <div class="acciones">
         <a class="boton" href="/api/trabajos/${t.id}/pdf">Descargar el PDF</a>
         <a class="boton secundario" href="/api/trabajos/${t.id}/musicxml">Descargar MusicXML</a>

@@ -37,6 +37,10 @@ def main() -> None:
                 ["pruebas/test_fantasmas.py"]):
         fallos.append("test_fantasmas")
 
+    if not paso("confianza: nada se descarta, lo dudoso se marca",
+                ["pruebas/test_confianza.py"]):
+        fallos.append("test_confianza")
+
     if args.actualizar_base:
         if not paso("midiendo y guardando la nueva base",
                     ["metricas.py", "--sinteticos", "--json", str(BASE)]):

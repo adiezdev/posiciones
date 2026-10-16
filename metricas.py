@@ -66,9 +66,14 @@ BATERIA = [
     # parte. Si no se deduce de la clave, TODOS los números salen mal sin
     # que nada avise.
     ("sib-clave-sol", {"clave": "sol", "transposicion": "sib"}),
+    # Cabezas como glifo de texto, que es como las dibuja cualquier editor.
+    # Activa la comprobación "¿hay una nota debajo de este número?", que con
+    # cabezas vectoriales no llega a ejecutarse.
+    ("cabezas-de-texto", {"cabezas_texto": True}),
+    ("cabezas-de-texto-sin-dx", {"cabezas_texto": True, "sin_dx": 0.50}),
 ]
 
-CABECERA = ("caso", "notas", "estamp", "cob%", "desc", "err_med",
+CABECERA = ("caso", "notas", "estamp", "cob%", "dud", "err_med",
             "err_p95", "ok%", "num%", "pent", "geom", "s")
 
 
@@ -191,7 +196,7 @@ def _celdas(fila: dict) -> tuple:
         str(fila["notas_omr"]),
         str(fila["estampadas"]),
         "%.0f" % (100 * fila["cobertura"]),
-        str(fila["descartadas"]),
+        str(fila.get("dudosas", 0)),
         ("%.2f" % c["error_mediano_pt"]) if c.get("error_mediano_pt") is not None else "-",
         ("%.2f" % c["error_p95_pt"]) if c.get("error_p95_pt") is not None else "-",
         ("%.0f" % (100 * c["tasa_acierto"])) if c else "-",

@@ -80,7 +80,7 @@ def analizar(pdf: Path, musicxml: Path, transpositor: bool = False,
     paginas: List[dict] = []
     import tempfile
     with tempfile.TemporaryDirectory() as tmp:
-        estampadas, medido = superponer.estampar(
+        estampadas, medido, dudosas = superponer.estampar(
             pdf, Path(tmp) / "estampado.pdf", plano, diag=paginas)
 
     # Lo que encuentra la detección sin decirle cuántos sistemas esperar.
@@ -95,6 +95,7 @@ def analizar(pdf: Path, musicxml: Path, transpositor: bool = False,
             f["pentagramas_libres"] = [list(x) for x in libres]
 
     resumen = _resumir(plano, paginas, estampadas, medido)
+    resumen["dudosas"] = dudosas
     resumen["lectura"] = lectura
     resumen["semitonos"] = diag_plano.get("semitonos", 0)
     resumen["omr"] = libro is not None
@@ -416,6 +417,8 @@ def main() -> None:
     print("números estampados     %d  (cobertura %.1f%%)"
           % (r["estampadas"], 100 * r["cobertura"]))
     print("números descartados    %d" % r["descartadas"])
+    print("números dudosos        %d  (se estampan más claros, para repasar)"
+          % r.get("dudosas", 0))
     for estado, n in sorted(r["estados"].items()):
         print("    %-24s %d" % (estado, n))
     print("coordenadas            modo %s, encaje %.0f%%"
