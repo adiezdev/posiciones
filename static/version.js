@@ -57,6 +57,10 @@
     opciones = opciones || {};
     var hayCambios = opciones.hayCambios || function () { return false; };
     var guardar = opciones.guardar || null;
+    // Para poder enseñar en pantalla qué versión está corriendo: sin eso,
+    // "no me sale el aviso" y "no ha habido despliegue" son lo mismo visto
+    // desde fuera y no hay forma de distinguirlos.
+    var alLeer = opciones.alLeer || null;
 
     var version = null;
     var avisado = false;
@@ -138,7 +142,11 @@
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (d) {
           if (!d || !d.version) return;
-          if (version === null) { version = d.version; return; }
+          if (version === null) {
+            version = d.version;
+            if (alLeer) { try { alLeer(version); } catch (_) {} }
+            return;
+          }
           if (d.version === version) return;
           avisado = true;
           if (temporizador) clearInterval(temporizador);

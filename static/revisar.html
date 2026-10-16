@@ -47,14 +47,30 @@
   .pista { color: var(--tinta-media); font-size: 0.85rem; }
   .contador { font-variant-numeric: tabular-nums; }
 
-  main { padding: 20px; max-width: 1200px; margin: 0 auto; }
+  /* La hoja decide su tamaño y el contenedor se desplaza si no cabe.
+     Antes era al revés: la imagen se encogía para caber (max-width:100%),
+     así que una partitura vertical salía diminuta, una apaisada salía a
+     otra escala distinta, y no había forma de acercarse para leer nada. */
+  main { padding: 20px; margin: 0 auto; overflow-x: auto; }
 
   .hoja {
     position: relative; margin: 0 auto 26px; background: #fff;
     border: 1px solid var(--pauta); box-shadow: 0 1px 4px rgba(0,0,0,.06);
-    width: fit-content;
+    /* El alto sale de la proporción de la página, así que la caja ya tiene
+       su tamaño antes de que cargue la imagen y los números no bailan. */
+    width: var(--ancho); aspect-ratio: var(--proporcion);
   }
-  .hoja img { display: block; max-width: 100%; height: auto; }
+  .hoja img { display: block; width: 100%; height: 100%; }
+
+  .zoom { display: flex; gap: 4px; align-items: center; }
+  .zoom output {
+    min-width: 46px; text-align: center; font-size: .85rem;
+    color: var(--tinta-media); font-variant-numeric: tabular-nums;
+  }
+  .version-pie {
+    text-align: center; color: var(--tinta-media);
+    font-size: .75rem; padding: 0 0 24px;
+  }
 
   .num {
     position: absolute; transform: translate(-50%, -50%);
@@ -123,12 +139,19 @@
   <h1 id="titulo">Repasar posiciones</h1>
   <span class="pista contador" id="cuenta"></span>
   <span class="hueco"></span>
+  <span class="zoom">
+    <button class="boton" id="menos" title="Alejar" aria-label="Alejar">−</button>
+    <output id="nivel">100%</output>
+    <button class="boton" id="mas" title="Acercar" aria-label="Acercar">+</button>
+    <button class="boton" id="ajustar" title="Ajustar al ancho de la ventana">Ajustar</button>
+  </span>
   <span class="pista" id="ayuda">Pincha un número para cambiarlo, arrástralo para moverlo. Pincha en una nota sin número para añadirlo.</span>
   <button class="boton" id="descargar">Descargar PDF</button>
   <button class="boton principal" id="guardar" disabled>Guardar cambios</button>
 </header>
 
 <main id="contenido"><p class="cargando">Cargando la partitura…</p></main>
+<p class="version-pie" id="version"></p>
 <div class="barra-estado" id="aviso"></div>
 
 <script src="/static/version.js"></script>
@@ -142,14 +165,57 @@ const UMBRAL_DUDOSA = 0.70;
 
 const parametros = new URLSearchParams(location.search);
 const ID = parametros.get("id");
-const ESCALA = 1.5;
+// A qué resolución se piden las páginas. Por encima del zoom habitual,
+// para que al acercarse no se vea pixelado.
+const ESCALA = 2;
 
 let hoja = null;
 let sucio = false;
 let ficha = null;
 
-const $ = (sel) => document.querySelector(sel);
 const contenido = $("#contenido");
+
+// Puntos de PDF por píxel de pantalla. Todas las páginas usan el mismo,
+// así que una partitura con páginas verticales y apaisadas mezcladas se ve
+// a la misma escala y no parece que el zoom vaya solo.
+const ZOOM_MIN = 0.35, ZOOM_MAX = 4;
+let zoom = Number(localStorage.getItem("posiciones:zoom")) || 0;
+
+function anchoDisponible() {
+  return Math.max(contenido.clientWidth - 40, 240);
+}
+
+function zoomDeAjuste() {
+  if (!hoja || !hoja.paginas.length) return 1;
+  // La página más ancha es la que manda: si cabe esa, caben todas.
+  const ancho = Math.max(...hoja.paginas.map((p) => p.ancho_pt));
+  return Math.min(anchoDisponible() / ancho, ZOOM_MAX);
+}
+
+function aplicarZoom(guardarlo) {
+  if (!hoja) return;
+  const z = zoom || zoomDeAjuste();
+  for (const pagina of hoja.paginas) {
+    const caja = contenido.querySelector(`[data-pagina="${pagina.pagina}"]`);
+    if (!caja) continue;
+    caja.style.setProperty("--ancho", (pagina.ancho_pt * z) + "px");
+    caja.style.setProperty("--proporcion",
+                           pagina.ancho_pt + " / " + pagina.alto_pt);
+  }
+  $("#nivel").value = Math.round(z * 100) + "%";
+  if (guardarlo) {
+    try { localStorage.setItem("posiciones:zoom", String(zoom)); } catch (_) {}
+  }
+}
+
+function cambiarZoom(factor) {
+  const actual = zoom || zoomDeAjuste();
+  zoom = Math.min(Math.max(actual * factor, ZOOM_MIN), ZOOM_MAX);
+  cerrarFicha();
+  aplicarZoom(true);
+}
+
+const $ = (sel) => document.querySelector(sel);
 
 function avisar(texto) {
   const barra = $("#aviso");
@@ -206,8 +272,9 @@ function pintar() {
 
     const img = document.createElement("img");
     img.src = `/api/trabajos/${encodeURIComponent(ID)}/pagina/${pagina.pagina}.png?escala=${ESCALA}`;
-    img.alt = `Página ${pagina.pagina + 1}`;
+    img.alt = `Página ${pagina.pagina + 1} de ${hoja.paginas.length}`;
     img.loading = "lazy";
+    img.draggable = false;
     caja.appendChild(img);
 
     for (const n of pagina.numeros) caja.appendChild(crearNumero(pagina, n));
@@ -222,6 +289,7 @@ function pintar() {
 
     contenido.appendChild(caja);
   }
+  aplicarZoom(false);
   actualizarCuenta();
 }
 
@@ -491,6 +559,21 @@ async function guardar() {
   }
 }
 
+$("#menos").addEventListener("click", () => cambiarZoom(1 / 1.25));
+$("#mas").addEventListener("click", () => cambiarZoom(1.25));
+$("#ajustar").addEventListener("click", () => {
+  zoom = 0;                      // 0 quiere decir "el que haga falta"
+  cerrarFicha();
+  aplicarZoom(true);
+});
+// Con zoom automático, al cambiar el tamaño de la ventana hay que rehacerlo.
+let remedir = null;
+window.addEventListener("resize", () => {
+  if (zoom) return;
+  clearTimeout(remedir);
+  remedir = setTimeout(() => aplicarZoom(false), 150);
+});
+
 $("#guardar").addEventListener("click", guardar);
 $("#descargar").addEventListener("click", () => {
   location.href = `/api/trabajos/${encodeURIComponent(ID)}/pdf`;
@@ -505,6 +588,10 @@ window.addEventListener("beforeunload", (e) => {
 VigilarVersion.iniciar({
   hayCambios: () => sucio,
   guardar: guardar,
+  alLeer: (v) => {
+    const el = $("#version");
+    if (el) el.textContent = "versión " + String(v).slice(0, 12);
+  },
 });
 
 // --- arranque ---------------------------------------------------------------

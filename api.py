@@ -363,8 +363,13 @@ def salud() -> dict:
 
 
 @app.get("/api/version")
-def api_version() -> dict:
-    return {"version": VERSION}
+def api_version() -> JSONResponse:
+    # Sin caché por si delante hay un proxy (en un NAS suele haberlo): una
+    # respuesta cacheada aquí hace que la pestaña abierta no se entere nunca
+    # de que el servidor ha cambiado, que es justo lo que esto evita.
+    return JSONResponse(
+        {"version": VERSION},
+        headers={"Cache-Control": "no-store, max-age=0"})
 
 
 @app.post("/api/trabajos")
@@ -414,7 +419,10 @@ async def crear(
 
 @app.get("/api/trabajos")
 def listar() -> list:
-    return trabajos.todos(DATOS)[:50]
+    # Sin recortar. Antes se devolvian 50 y con una carpeta de 60 partituras
+    # faltaban diez sin que nada lo dijera, que es peor que tardar un poco
+    # mas en pintar la lista.
+    return trabajos.todos(DATOS)
 
 
 @app.get("/api/trabajos/{tid}")

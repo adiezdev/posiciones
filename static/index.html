@@ -273,6 +273,13 @@
     font-size: 0.9rem;
   }
 
+  .version {
+    display: block;
+    margin-top: 8px;
+    font-size: 0.75rem;
+    opacity: .7;
+    font-variant-numeric: tabular-nums;
+  }
   .ayuda {
     margin: 6px 0 0;
     color: var(--tinta-media);
@@ -386,6 +393,7 @@
   <footer>
     Los números son la posición más cómoda según el contexto, no la única
     posible. Revisa siempre el resultado antes de tocarlo en un ensayo.
+    <span id="version" class="version"></span>
   </footer>
 </main>
 
@@ -588,6 +596,10 @@ VigilarVersion.iniciar({
   hayCambios: () => Boolean(
     (fichero.files && fichero.files.length)
     || titulo.value.trim() || etiqueta.value.trim()),
+  alLeer: (v) => {
+    const el = document.getElementById("version");
+    if (el) el.textContent = "versión " + String(v).slice(0, 12);
+  },
 });
 </script>
 </body>
