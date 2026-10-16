@@ -74,6 +74,7 @@ class Plano:
     # un pentagrama al emparejar.
     sistemas_pagina: Optional[Dict[int, List[int]]] = None
     rellenadas: int = 0          # notas que solo existen en el PDF, no en el OMR
+    sin_x: int = 0               # notas descartadas por no tener x reconstruible
 
 
 # --- lectura del MusicXML ---------------------------------------------------
@@ -231,11 +232,21 @@ def _rellenar_dx(registros: List[dict]) -> None:
 def preparar(ruta_musicxml, transpositor: bool = False,
              preferir_cercanas: bool = False,
              peso_movimiento=None,
-             pdf: Optional[Path] = None) -> Optional[Plano]:
+             pdf: Optional[Path] = None,
+             diag: Optional[dict] = None) -> Optional[Plano]:
     """
     Recorre el MusicXML reconstruyendo la posición de cada nota en la página.
     Devuelve None si no hay coordenadas utilizables.
+
+    Si se pasa `diag`, se rellena con el motivo exacto de la renuncia. Sin
+    eso, un None es indistinguible de otro y no hay forma de saber qué PDF
+    falla por qué.
     """
+    def rendirse(motivo: str):
+        if diag is not None:
+            diag["motivo"] = motivo
+        return None
+
     arbol = ET.parse(ruta_musicxml) if isinstance(ruta_musicxml, Path) else ruta_musicxml
     raiz = arbol.getroot()
 
@@ -243,27 +254,27 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     if len(partes) != 1:
         # Con varias partes haría falta seguir también la separación entre
         # pentagramas; no es el caso de una particella de trombón.
-        return None
+        return rendirse("varias_partes:%d" % len(partes))
 
     defaults = raiz.find("defaults")
     if defaults is None:
-        return None
+        return rendirse("sin_defaults")
 
     esc = defaults.find("scaling")
     pl_global = defaults.find("page-layout")
     if esc is None or pl_global is None:
-        return None
+        return rendirse("sin_escala_o_disposicion")
 
     mm = _f(esc.findtext("millimeters"))
     tenths = _f(esc.findtext("tenths"))
     if mm <= 0 or tenths <= 0:
-        return None
+        return rendirse("escala_invalida")
     mm_por_decimo = mm / tenths
 
     ancho_pagina = _f(pl_global.findtext("page-width"))
     alto_pagina = _f(pl_global.findtext("page-height"))
     if ancho_pagina <= 0 or alto_pagina <= 0:
-        return None
+        return rendirse("pagina_sin_medidas")
 
     margen_izq, margen_sup = _margenes(pl_global) or (0.0, 0.0)
 
@@ -437,7 +448,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         cerrar_grupo()
 
     if not registros:
-        return None
+        return rendirse("sin_notas_en_el_musicxml")
 
     # Con varias voces, <backup> hace retroceder el reloj y los registros
     # quedan en orden de documento, no de lectura. Reordenamos antes de
@@ -449,7 +460,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
     sin_coordenada = sum(1 for r in registros if r["dx"] is None)
     _rellenar_dx(registros)
     if all(r["dx"] is None for r in registros):
-        return None
+        return rendirse("ninguna_nota_trae_default_x")
 
     # Altura de los números: en la parte baja del hueco hasta el sistema
     # siguiente, medido de verdad en lugar de a ojo.
@@ -473,10 +484,13 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         r["y"] = sistemas[r["sistema"]]["y_numeros"] if sistemas else 0.0
 
     modo, acierto = _referencias(registros, margen_izq, ancho_pagina)
+    if diag is not None:
+        diag["modo_x"] = modo
+        diag["encaje"] = acierto
     if acierto < 0.8:
         # Ninguna interpretación deja los números dentro de la página: mejor
         # no estampar nada y que quien llame recurra a redibujar.
-        return None
+        return rendirse("encaje_bajo:%.2f(%s)" % (acierto, modo))
 
     # Fallback dx: para cada sistema, interpolación lineal por offset entre
     # el primer y el último registro con dx válido. Rellena huecos grandes
@@ -547,6 +561,16 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         if r["x"] is not None
     ]
 
+    if diag is not None:
+        diag["motivo"] = None
+        diag["notas"] = [
+            {"midi": r["midi"], "offset": r["offset"], "pagina": r["pagina"],
+             "sistema": r["sistema"], "dx": r["dx"], "x": r["x"],
+             "estimada": bool(r.get("estimada")),
+             "pos": (p.etiqueta if p is not None else None)}
+            for r, p in zip(registros, elegidas)]
+        diag["sistemas"] = [dict(s_i) for s_i in sistemas]
+
     return Plano(
         marcas=marcas,
         ancho_pagina=ancho_pagina,
@@ -560,6 +584,7 @@ def preparar(ruta_musicxml, transpositor: bool = False,
         tramos={i: (s_i["x_ini"], s_i["x_fin"]) for i, s_i in enumerate(sistemas)},
         sistemas_pagina=por_pag,
         rellenadas=sum(1 for r in registros if r.get("estimada")),
+        sin_x=sum(1 for r in registros if r["x"] is None),
     )
 
 
@@ -1308,15 +1333,56 @@ def _cuerpo_por_sistema(marcas: List[Marca], espacio: float) -> float:
     return min(max(cuerpo, CUERPO_MIN * espacio), CUERPO_MAX * espacio)
 
 
+def a_hoja(x_vista: float, y_arriba: float, giro: int,
+           ancho_caja: float, alto_caja: float, alto_pt: float,
+           orig_x: float = 0.0, orig_y: float = 0.0) -> Tuple[float, float]:
+    """
+    Pasa un punto de la página *tal como se ve* al espacio del PDF.
+
+    `x_vista`/`y_arriba` van en puntos desde la esquina superior izquierda de
+    lo que muestra el visor. `ancho_caja`/`alto_caja` son los de la caja sin
+    girar, y `orig_x`/`orig_y` su esquina inferior izquierda, que no siempre
+    es (0,0). `giro` es el /Rotate de la página.
+
+    /Rotate gira la imagen en sentido horario al mostrarla, así que aquí se
+    deshace ese giro. Lo usan por igual el estampado y el diagnóstico: si la
+    fórmula estuviera mal, los dos se equivocarían igual y las pruebas no lo
+    verían, por eso el generador de partituras sintéticas la deriva aparte.
+    """
+    y_vista = alto_pt - y_arriba
+    if giro == 90:
+        x, y = ancho_caja - y_vista, x_vista
+    elif giro == 180:
+        x, y = ancho_caja - x_vista, alto_caja - y_vista
+    elif giro == 270:
+        x, y = y_vista, alto_caja - x_vista
+    else:
+        x, y = x_vista, y_vista
+    return x + orig_x, y + orig_y
+
+
+def _ficha_marca(m: Marca, x_bruta: float, x: float,
+                 alturas: Dict[int, float], estado: str) -> dict:
+    """Qué ha pasado con un número, para el PDF de diagnóstico."""
+    return {"id": id(m), "texto": m.texto, "sistema": m.sistema,
+            "estimada": m.estimada, "x_omr": x_bruta, "x": x,
+            "y": alturas.get(m.sistema, 0.0), "estado": estado}
+
+
 def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
              tamano_relativo: float = 2.0,
-             fraccion_hueco: float = 0.48) -> Tuple[int, bool]:
+             fraccion_hueco: float = 0.48,
+             diag: Optional[list] = None) -> Tuple[int, bool]:
     """
     Dibuja los números sobre el PDF original. Devuelve (cuántos, si se han
     usado los pentagramas medidos en el propio PDF).
 
     Las X vienen de Audiveris, que en eso acierta. Las Y salen de medir el
     PDF, porque la escala vertical que declara Audiveris no es de fiar.
+
+    Si se pasa `diag` (una lista), se le añade una ficha por página con todo
+    lo que se ha medido y qué ha pasado con cada número. Es lo que consume
+    `depurar.py` para pintar el PDF de diagnóstico.
     """
     from io import BytesIO
 
@@ -1336,6 +1402,11 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
     for indice, pagina in enumerate(lector.pages):
         marcas = por_pagina.get(indice)
         giro = int(pagina.get("/Rotate") or 0) % 360
+        ficha = None
+        if diag is not None:
+            ficha = {"pagina": indice, "giro": giro,
+                     "marcas_entrada": len(marcas or []), "notas": []}
+            diag.append(ficha)
 
         if marcas:
             # pypdfium2 renderiza la CropBox, no la MediaBox. Si el PDF trae
@@ -1371,6 +1442,16 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
             en_pagina = (plano.sistemas_pagina or {}).get(indice, sistemas)
             pentagramas = detectar_pentagramas(pdf_original, indice, alto_pt,
                                                esperados=len(en_pagina))
+
+            if ficha is not None:
+                ficha.update({
+                    "caja": [float(caja.left), float(caja.bottom),
+                             ancho_caja, alto_caja],
+                    "ancho_pt": ancho_pt, "alto_pt": alto_pt,
+                    "fx": fx, "fy": fy,
+                    "sistemas_esperados": len(en_pagina),
+                    "pentagramas": [list(x) for x in pentagramas],
+                })
 
             if len(pentagramas) == len(en_pagina):
                 medido = True
@@ -1411,6 +1492,16 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                           for k, s in enumerate(en_pagina)
                           if k < len(pentagramas)}
 
+            if ficha is not None:
+                ficha.update({
+                    "medido": medido,
+                    "espacio": espacio,
+                    "cabezas_texto": (None if cabeceas is None
+                                      else [list(c) for c in cabeceas]),
+                    "escalas": {str(k): list(v) for k, v in escalas.items()},
+                    "alturas": {str(k): v for k, v in alturas.items()},
+                })
+
             # Ya en puntos de la página vista, para medir lo juntas que van.
             colocadas = []
             for m in marcas:
@@ -1420,6 +1511,8 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                     x = izq + (m.x - origen) * factor
                 else:
                     x = m.x * fx
+                x_bruta = x
+                estado = "puesta"
                 banda = banda_pent.get(m.sistema)
                 if cabeceas is not None and banda:
                     cerca = [hx for hx, hy in cabeceas
@@ -1432,14 +1525,27 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                         # compás. Solo si está razonablemente cerca.
                         mejor_hx = min(cerca, key=lambda hx: abs(hx - x))
                         if abs(mejor_hx - x) <= 1.2 * espacio:
+                            if abs(mejor_hx - x) > 0.05 * espacio:
+                                estado = "ajustada"
                             x = mejor_hx
+                        else:
+                            estado = "cabeza_lejos"
                     elif m.estimada:
                         # Nota que solo existía en la imagen y que ahora no
                         # aparece: era un falso positivo.
+                        if ficha is not None:
+                            ficha["notas"].append(
+                                _ficha_marca(m, x_bruta, x_bruta, alturas,
+                                             "descartada_sin_cabeza"))
                         continue
+                    else:
+                        estado = "sin_cabeza"
                     # Una nota leída del MusicXML SIEMPRE se estampa. Que no
                     # encontremos su cabeza es un fallo de nuestra detección
                     # de glifos, no una razón para comerse la nota.
+                if ficha is not None:
+                    ficha["notas"].append(
+                        _ficha_marca(m, x_bruta, x, alturas, estado))
                 colocadas.append((m, x))
 
             # Dos cifras en el mismo punto (una leída y otra estimada) o tres
@@ -1454,6 +1560,13 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
                 limpias.append((m, x))
             colocadas = limpias
 
+            if ficha is not None:
+                vivas = {id(m) for m, _ in colocadas}
+                for f in ficha["notas"]:
+                    if (f["estado"] != "descartada_sin_cabeza"
+                            and f["id"] not in vivas):
+                        f["estado"] = "descartada_duplicada"
+
             cuerpos = {}
             for s in sistemas:
                 suyas = [Marca(m.pagina, x, m.y, m.texto, m.sistema)
@@ -1463,20 +1576,9 @@ def estampar(pdf_original: Path, pdf_salida: Path, plano: Plano,
             buffer = BytesIO()
             lienzo = canvas.Canvas(buffer, pagesize=(ancho_caja, alto_caja))
             for m, x_vista in colocadas:
-                # En PDF la Y crece hacia arriba; nosotros medimos hacia abajo.
-                y_vista = alto_pt - alturas[m.sistema]
-                if giro == 90:
-                    x_hoja, y_hoja = ancho_caja - y_vista, x_vista
-                elif giro == 180:
-                    x_hoja, y_hoja = ancho_caja - x_vista, alto_caja - y_vista
-                elif giro == 270:
-                    x_hoja, y_hoja = y_vista, alto_caja - x_vista
-                else:
-                    x_hoja, y_hoja = x_vista, y_vista
-                # La caja recortada puede no empezar en (0,0); el espacio de
-                # usuario del PDF es común a toda la página.
-                x_hoja += orig_x
-                y_hoja += orig_y
+                x_hoja, y_hoja = a_hoja(x_vista, alturas[m.sistema], giro,
+                                        ancho_caja, alto_caja, alto_pt,
+                                        orig_x, orig_y)
 
                 lienzo.saveState()
                 lienzo.translate(x_hoja, y_hoja)

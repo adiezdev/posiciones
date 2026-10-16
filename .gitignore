@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# El corpus son partituras con derechos: se queda en local.
+corpus/*/
+!corpus/README.md
+
+# Salidas de depurar.py y de metricas.py --debug
+*diagn*stico*.pdf
+medidas.json
+informe.json

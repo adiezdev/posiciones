@@ -8,22 +8,25 @@ verdad), comprueba que:
   - un blob que lleva al lado un glifo de cabeza se conserva (nota olvidada)
   - un blob que solo lleva una cifra u otro texto se veta (falso positivo)
 
-Ejecutar: python3 chequeo_fantasmas.py
+Ejecutar: python pruebas/test_fantasmas.py
 """
 
 import sys
+import tempfile
 from pathlib import Path
 
 from reportlab.pdfgen import canvas
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import superponer as S
 
 ANCHO, ALTO = 842.0, 596.0
-ruta = Path("/tmp/chequeo_fantasmas.pdf")
+# Antes era una ruta fija en /tmp: no existe en Windows y dos ejecuciones a
+# la vez se pisaban el archivo.
+ruta = Path(tempfile.gettempdir()) / "chequeo_fantasmas.pdf"
 
 
-def construir_pdf():
+def construir_pdf() -> None:
     """Glifos en coords top-origin: X en la nota real y sus vecinas, y el
     fantasma bueno; '4' (cifra) en el fantasma malo."""
     c = canvas.Canvas(str(ruta), pagesize=(ANCHO, ALTO))

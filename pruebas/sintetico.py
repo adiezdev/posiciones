@@ -1,0 +1,421 @@
+"""
+Genera partituras falsas con verdad conocida.
+
+El problema de este proyecto es que no había forma de saber si un cambio
+mejoraba o empeoraba: cada ajuste de umbral se validaba abriendo un PDF y
+mirándolo. Aquí fabricamos partituras donde sabemos exactamente dónde está
+cada cabeza de nota, así que se puede medir el error en puntos.
+
+Produce tres cosas que encajan entre sí:
+
+  partitura.pdf    lo que vería el usuario
+  export.musicxml  lo que Audiveris habría exportado de ese PDF
+  verdad.json      dónde está de verdad cada nota, en puntos
+
+Y sabe estropearlas a propósito, que es lo interesante: quitar coordenadas
+como hace Audiveris en pasajes densos, girar la página con /Rotate, meter
+una CropBox distinta de la MediaBox... Cada defecto reproduce un fallo real
+que hemos visto en PDFs de verdad.
+
+    python pruebas/sintetico.py /tmp/caso --paginas 2 --rotate 90
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import random
+from pathlib import Path
+from typing import Dict, List, Tuple
+from xml.etree import ElementTree as ET
+
+# --- escala -----------------------------------------------------------------
+# MusicXML mide todo en "décimos": cuatro espacios de pentagrama son 40.
+MM_POR_PULGADA = 25.4
+MM_PENTAGRAMA = 7.0          # alto de un pentagrama de cinco líneas
+DECIMOS_PENTAGRAMA = 40.0
+MM_POR_DECIMO = MM_PENTAGRAMA / DECIMOS_PENTAGRAMA
+PT_POR_DECIMO = MM_POR_DECIMO * 72.0 / MM_POR_PULGADA
+
+# --- hoja -------------------------------------------------------------------
+A4_ANCHO_MM, A4_ALTO_MM = 297.0, 210.0      # apaisado, como casi toda marcha
+
+MARGEN_IZQ = 80.0
+MARGEN_DER = 80.0
+MARGEN_SUP = 100.0
+MARGEN_INF = 80.0
+DIST_PRIMER_SISTEMA = 150.0
+DIST_SISTEMA_MAX = 240.0
+
+NOTAS_POR_COMPAS = 4
+MEDIA_CABEZA = 6.5           # el mismo valor que usa superponer.py
+ANCHO_CABEZA = 13.0
+ALTO_CABEZA = 10.0
+
+PASOS = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+LETRAS = "CDEFGAB"
+
+
+def _mm_a_pt(mm: float) -> float:
+    return mm * 72.0 / MM_POR_PULGADA
+
+
+def altura_de_grado(k: int) -> Tuple[str, int, int]:
+    """
+    (letra, octava, midi) de un grado diatónico sobre la línea inferior.
+
+    En clave de fa la línea de abajo es Sol2, y k cuenta grados hacia arriba.
+    Es la inversa exacta de `superponer._midi_fa`, así que si esa función se
+    rompe, estas pruebas lo cantan.
+    """
+    idx = 2 * 7 + 4 + k
+    octava, paso = divmod(idx, 7)
+    letra = LETRAS[paso]
+    return letra, octava, (octava + 1) * 12 + PASOS[letra]
+
+
+# Una línea de trombón plausible: grados sobre la línea inferior del
+# pentagrama. Ni escala cromática ni saltos imposibles, para que el solver
+# de posiciones tenga algo con sentido que resolver.
+MELODIA = [0, 2, 4, 2, 5, 4, 2, 0, -1, 1, 3, 1, 4, 6, 4, 3,
+           7, 5, 3, 5, 8, 6, 4, 6, 2, 4, 6, 8, 7, 5, 3, 1]
+
+
+class Caso:
+    """Una partitura sintética con su verdad."""
+
+    def __init__(self, paginas: int = 2, sistemas: int = 4, compases: int = 4,
+                 rotate: int = 0, margen_cropbox: float = 0.0,
+                 sin_dx: float = 0.0, semilla: int = 7):
+        self.paginas = paginas
+        self.sistemas = sistemas
+        self.compases = compases
+        self.rotate = rotate % 360
+        self.margen_cropbox = margen_cropbox
+        self.sin_dx = sin_dx
+        self.azar = random.Random(semilla)
+
+        self.ancho_pagina = A4_ANCHO_MM / MM_POR_DECIMO
+        self.alto_pagina = A4_ALTO_MM / MM_POR_DECIMO
+        self.ancho_util = self.ancho_pagina - MARGEN_IZQ - MARGEN_DER
+        self.ancho_compas = self.ancho_util / compases
+
+        # La separación entre sistemas se reparte para que quepan todos en la
+        # hoja. Un grabador hace justo esto: apretar los sistemas cuando hay
+        # muchos. Si se fija a ojo, con seis sistemas se salen de la página y
+        # luego no hay quien entienda por qué falla la detección.
+        libre = (self.alto_pagina - MARGEN_SUP - DIST_PRIMER_SISTEMA
+                 - MARGEN_INF - sistemas * DECIMOS_PENTAGRAMA)
+        self.dist_sistema = (min(DIST_SISTEMA_MAX, libre / (sistemas - 1))
+                             if sistemas > 1 else DIST_SISTEMA_MAX)
+        if self.dist_sistema < DECIMOS_PENTAGRAMA:
+            raise ValueError("no caben %d sistemas en la hoja" % sistemas)
+
+        # Lo que se ve: el visor aplica /Rotate, así que el papel puede estar
+        # guardado en vertical y verse apaisado.
+        self.vista_ancho_pt = _mm_a_pt(A4_ANCHO_MM)
+        self.vista_alto_pt = _mm_a_pt(A4_ALTO_MM)
+        if self.rotate in (90, 270):
+            self.hoja_ancho_pt = self.vista_alto_pt
+            self.hoja_alto_pt = self.vista_ancho_pt
+        else:
+            self.hoja_ancho_pt = self.vista_ancho_pt
+            self.hoja_alto_pt = self.vista_alto_pt
+
+        self.notas: List[dict] = []
+        self.pentagramas: List[dict] = []
+        self._componer()
+
+    # -- geometría -----------------------------------------------------------
+
+    def y_sistema(self, indice_en_pagina: int) -> float:
+        """Décimos desde el borde superior hasta la línea de arriba."""
+        return (MARGEN_SUP + DIST_PRIMER_SISTEMA
+                + indice_en_pagina * (DECIMOS_PENTAGRAMA + self.dist_sistema))
+
+    def a_vista(self, x_dec: float, y_dec: float) -> Tuple[float, float]:
+        """Décimos (y hacia abajo) -> puntos de la página tal como se ve."""
+        return x_dec * PT_POR_DECIMO, y_dec * PT_POR_DECIMO
+
+    def a_hoja(self, x_vista: float, y_abajo: float) -> Tuple[float, float]:
+        """
+        Puntos de la vista (y hacia abajo) -> puntos de la hoja (y hacia
+        arriba), deshaciendo el /Rotate.
+
+        /Rotate gira la imagen en el sentido de las agujas del reloj al
+        mostrarla, así que para colocar algo en un sitio concreto de la vista
+        hay que girarlo al revés antes de dibujarlo.
+        """
+        W, H = self.vista_ancho_pt, self.vista_alto_pt
+        if self.rotate == 90:
+            xs, ys = y_abajo, x_vista
+        elif self.rotate == 180:
+            xs, ys = W - x_vista, y_abajo
+        elif self.rotate == 270:
+            xs, ys = H - y_abajo, W - x_vista
+        else:
+            xs, ys = x_vista, H - y_abajo
+        return xs + self.margen_cropbox, ys + self.margen_cropbox
+
+    # -- contenido -----------------------------------------------------------
+
+    def _componer(self) -> None:
+        n = 0
+        indice_sistema = 0
+        for pagina in range(self.paginas):
+            for s in range(self.sistemas):
+                y_top = self.y_sistema(s)
+                y_bot = y_top + DECIMOS_PENTAGRAMA
+                sup_pt, _ = self.a_vista(0, y_top)
+                self.pentagramas.append({
+                    "pagina": pagina,
+                    "sistema": indice_sistema,
+                    "sup_pt": y_top * PT_POR_DECIMO,
+                    "inf_pt": y_bot * PT_POR_DECIMO,
+                    "izq_pt": MARGEN_IZQ * PT_POR_DECIMO,
+                    "der_pt": (self.ancho_pagina - MARGEN_DER) * PT_POR_DECIMO,
+                })
+                for c in range(self.compases):
+                    x_medida = MARGEN_IZQ + c * self.ancho_compas
+                    for j in range(NOTAS_POR_COMPAS):
+                        dx = self.ancho_compas * (0.10 + 0.22 * j)
+                        k = MELODIA[n % len(MELODIA)]
+                        letra, octava, midi = altura_de_grado(k)
+                        # Media línea por grado: la cabeza se apoya en la
+                        # línea o se mete en el espacio.
+                        y_cab = y_bot - k * (DECIMOS_PENTAGRAMA / 8.0)
+                        x_cab = x_medida + dx + MEDIA_CABEZA
+                        self.notas.append({
+                            "n": n,
+                            "pagina": pagina,
+                            "sistema": indice_sistema,
+                            "compas": pagina * self.sistemas * self.compases
+                                      + s * self.compases + c,
+                            "dx": dx,
+                            "x_medida": x_medida,
+                            "midi": midi,
+                            "letra": letra,
+                            "octava": octava,
+                            "grado": k,
+                            # La verdad, en puntos de la página tal como se ve.
+                            "x_pt": x_cab * PT_POR_DECIMO,
+                            "y_pt": y_cab * PT_POR_DECIMO,
+                            # Audiveris a veces no da la coordenada.
+                            "con_dx": self.azar.random() >= self.sin_dx,
+                        })
+                        n += 1
+                indice_sistema += 1
+
+    # -- salida --------------------------------------------------------------
+
+    def escribir_pdf(self, destino: Path) -> None:
+        from reportlab.pdfgen import canvas
+
+        ancho = self.hoja_ancho_pt + 2 * self.margen_cropbox
+        alto = self.hoja_alto_pt + 2 * self.margen_cropbox
+        c = canvas.Canvas(str(destino), pagesize=(ancho, alto))
+
+        def linea(x1d, y1d, x2d, y2d, grosor=0.5):
+            p1 = self.a_hoja(*self.a_vista(x1d, y1d))
+            p2 = self.a_hoja(*self.a_vista(x2d, y2d))
+            c.setLineWidth(grosor)
+            c.line(p1[0], p1[1], p2[0], p2[1])
+
+        for pagina in range(self.paginas):
+            c.setStrokeColorRGB(0, 0, 0)
+            c.setFillColorRGB(0, 0, 0)
+
+            for s in range(self.sistemas):
+                y_top = self.y_sistema(s)
+                izq, der = MARGEN_IZQ, self.ancho_pagina - MARGEN_DER
+                for k in range(5):
+                    y = y_top + k * (DECIMOS_PENTAGRAMA / 4.0)
+                    linea(izq, y, der, y, 0.5)
+                # Barras de compás, incluida la del final del sistema.
+                for ci in range(self.compases + 1):
+                    x = izq + ci * self.ancho_compas
+                    linea(x, y_top, x, y_top + DECIMOS_PENTAGRAMA, 0.7)
+
+            for nota in [x for x in self.notas if x["pagina"] == pagina]:
+                self._cabeza(c, nota)
+
+            c.showPage()
+        c.save()
+
+        if self.rotate or self.margen_cropbox:
+            self._retocar_cajas(destino)
+
+    def _cabeza(self, c, nota: dict) -> None:
+        """Una cabeza elíptica con su plica, en coordenadas de hoja."""
+        cx_pt, cy_pt = nota["x_pt"], nota["y_pt"]
+        rx = ANCHO_CABEZA / 2.0 * PT_POR_DECIMO
+        ry = ALTO_CABEZA / 2.0 * PT_POR_DECIMO
+
+        # La elipse se dibuja punto a punto porque hay que girarla con la
+        # página; reportlab no sabe dibujar en un sistema girado.
+        import math
+        puntos = []
+        for i in range(24):
+            a = 2 * math.pi * i / 24
+            puntos.append(self.a_hoja(cx_pt + rx * math.cos(a),
+                                      cy_pt + ry * math.sin(a)))
+        p = c.beginPath()
+        p.moveTo(*puntos[0])
+        for q in puntos[1:]:
+            p.lineTo(*q)
+        p.close()
+        c.drawPath(p, stroke=0, fill=1)
+
+        # Plica hacia arriba, pegada al borde derecho de la cabeza.
+        a1 = self.a_hoja(cx_pt + rx, cy_pt)
+        a2 = self.a_hoja(cx_pt + rx, cy_pt - 3.0 * DECIMOS_PENTAGRAMA / 4.0
+                         * PT_POR_DECIMO)
+        c.setLineWidth(0.7)
+        c.line(a1[0], a1[1], a2[0], a2[1])
+
+    def _retocar_cajas(self, destino: Path) -> None:
+        """Mete el /Rotate y la CropBox que reportlab no sabe poner."""
+        from pypdf import PdfReader, PdfWriter
+        from pypdf.generic import NameObject, NumberObject
+
+        lector = PdfReader(str(destino))
+        escritor = PdfWriter()
+        m = self.margen_cropbox
+        for pag in lector.pages:
+            if self.rotate:
+                pag[NameObject("/Rotate")] = NumberObject(self.rotate)
+            if m:
+                pag.cropbox.lower_left = (m, m)
+                pag.cropbox.upper_right = (m + self.hoja_ancho_pt,
+                                           m + self.hoja_alto_pt)
+            escritor.add_page(pag)
+        with open(destino, "wb") as f:
+            escritor.write(f)
+
+    def escribir_musicxml(self, destino: Path) -> None:
+        """Un MusicXML con la pinta del que exporta Audiveris."""
+        raiz = ET.Element("score-partwise", version="4.0")
+
+        defaults = ET.SubElement(raiz, "defaults")
+        esc = ET.SubElement(defaults, "scaling")
+        ET.SubElement(esc, "millimeters").text = "%.4f" % MM_PENTAGRAMA
+        ET.SubElement(esc, "tenths").text = "%.0f" % DECIMOS_PENTAGRAMA
+        pl = ET.SubElement(defaults, "page-layout")
+        ET.SubElement(pl, "page-height").text = "%.2f" % self.alto_pagina
+        ET.SubElement(pl, "page-width").text = "%.2f" % self.ancho_pagina
+        pm = ET.SubElement(pl, "page-margins", type="both")
+        ET.SubElement(pm, "left-margin").text = "%.2f" % MARGEN_IZQ
+        ET.SubElement(pm, "right-margin").text = "%.2f" % MARGEN_DER
+        ET.SubElement(pm, "top-margin").text = "%.2f" % MARGEN_SUP
+        ET.SubElement(pm, "bottom-margin").text = "%.2f" % MARGEN_INF
+        sl = ET.SubElement(defaults, "system-layout")
+        sm = ET.SubElement(sl, "system-margins")
+        ET.SubElement(sm, "left-margin").text = "0"
+        ET.SubElement(sm, "right-margin").text = "0"
+        ET.SubElement(sl, "system-distance").text = "%.2f" % self.dist_sistema
+        ET.SubElement(sl, "top-system-distance").text = \
+            "%.2f" % DIST_PRIMER_SISTEMA
+
+        lista = ET.SubElement(raiz, "part-list")
+        sp = ET.SubElement(lista, "score-part", id="P1")
+        ET.SubElement(sp, "part-name").text = "Trombón"
+
+        parte = ET.SubElement(raiz, "part", id="P1")
+        por_compas: Dict[int, List[dict]] = {}
+        for nota in self.notas:
+            por_compas.setdefault(nota["compas"], []).append(nota)
+
+        numero = 0
+        for pagina in range(self.paginas):
+            for s in range(self.sistemas):
+                for c in range(self.compases):
+                    numero += 1
+                    m = ET.SubElement(parte, "measure", number=str(numero),
+                                      width="%.2f" % self.ancho_compas)
+                    if c == 0:
+                        imp = ET.SubElement(m, "print")
+                        if s == 0 and pagina > 0:
+                            imp.set("new-page", "yes")
+                        elif s > 0:
+                            imp.set("new-system", "yes")
+                    if numero == 1:
+                        at = ET.SubElement(m, "attributes")
+                        ET.SubElement(at, "divisions").text = "1"
+                        key = ET.SubElement(at, "key")
+                        ET.SubElement(key, "fifths").text = "0"
+                        tim = ET.SubElement(at, "time")
+                        ET.SubElement(tim, "beats").text = "4"
+                        ET.SubElement(tim, "beat-type").text = "4"
+                        cl = ET.SubElement(at, "clef")
+                        ET.SubElement(cl, "sign").text = "F"
+                        ET.SubElement(cl, "line").text = "4"
+
+                    for nota in por_compas[numero - 1]:
+                        atrs = {}
+                        if nota["con_dx"]:
+                            atrs["default-x"] = "%.2f" % nota["dx"]
+                        n = ET.SubElement(m, "note", **atrs)
+                        p = ET.SubElement(n, "pitch")
+                        ET.SubElement(p, "step").text = nota["letra"]
+                        ET.SubElement(p, "octave").text = str(nota["octava"])
+                        ET.SubElement(n, "duration").text = "1"
+                        ET.SubElement(n, "voice").text = "1"
+                        ET.SubElement(n, "type").text = "quarter"
+
+        ET.ElementTree(raiz).write(str(destino), encoding="UTF-8",
+                                   xml_declaration=True)
+
+    def escribir_verdad(self, destino: Path) -> None:
+        destino.write_text(json.dumps({
+            "paginas": self.paginas,
+            "sistemas_por_pagina": self.sistemas,
+            "rotate": self.rotate,
+            "margen_cropbox": self.margen_cropbox,
+            "sin_dx": self.sin_dx,
+            "pt_por_decimo": PT_POR_DECIMO,
+            "espacio_pt": (DECIMOS_PENTAGRAMA / 4.0) * PT_POR_DECIMO,
+            "pentagramas": self.pentagramas,
+            "notas": [{k: v for k, v in n.items()} for n in self.notas],
+        }, ensure_ascii=False, indent=1), encoding="utf-8")
+
+    def generar(self, carpeta: Path) -> Dict[str, Path]:
+        carpeta.mkdir(parents=True, exist_ok=True)
+        rutas = {
+            "pdf": carpeta / "partitura.pdf",
+            "musicxml": carpeta / "export.musicxml",
+            "verdad": carpeta / "verdad.json",
+        }
+        self.escribir_pdf(rutas["pdf"])
+        self.escribir_musicxml(rutas["musicxml"])
+        self.escribir_verdad(rutas["verdad"])
+        return rutas
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("carpeta", type=Path, help="dónde dejar los tres archivos")
+    ap.add_argument("--paginas", type=int, default=2)
+    ap.add_argument("--sistemas", type=int, default=4,
+                    help="pentagramas por página")
+    ap.add_argument("--compases", type=int, default=4, help="por sistema")
+    ap.add_argument("--rotate", type=int, default=0, choices=(0, 90, 180, 270),
+                    help="girar la página con /Rotate, como muchos escáneres")
+    ap.add_argument("--cropbox", type=float, default=0.0, metavar="PT",
+                    help="margen entre MediaBox y CropBox, para probar PDFs recortados")
+    ap.add_argument("--sin-dx", type=float, default=0.0, metavar="FRAC",
+                    help="fracción de notas sin default-x, como en pasajes densos")
+    args = ap.parse_args()
+
+    caso = Caso(paginas=args.paginas, sistemas=args.sistemas,
+                compases=args.compases, rotate=args.rotate,
+                margen_cropbox=args.cropbox, sin_dx=args.sin_dx)
+    rutas = caso.generar(args.carpeta)
+    print("%d notas, %d pentagramas, %d páginas"
+          % (len(caso.notas), len(caso.pentagramas), caso.paginas))
+    for k, v in rutas.items():
+        print("  %-9s %s" % (k, v))
+
+
+if __name__ == "__main__":
+    main()
