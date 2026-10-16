@@ -46,6 +46,20 @@ def main() -> None:
     assert all(n["cuerpo"] > 0 for n in numeros), \
         "sin el cuerpo guardado, al reestampar saldría otro tamaño de letra"
 
+    # El cuerpo tiene que salir de la misma fórmula que usa el estampado.
+    # Esta comprobación existe porque el PDF de diagnóstico calculaba el
+    # suyo aparte: dibujaba las cifras un 40 % más estrechas, y el PDF
+    # final parecía colocarlas mal cuando lo único que cambiaba era el
+    # tamaño. Un diagnóstico que no enseña lo que se descarga engaña.
+    espacio = diag[0].get("espacio") or 0.0
+    assert espacio > 0, "la ficha de diagnóstico no trae el espacio"
+    for n in numeros:
+        assert (S.CUERPO_MIN * espacio - 0.01 <= n["cuerpo"]
+                <= S.CUERPO_MAX * espacio + 0.01), (
+            "cuerpo %.2f fuera de [%.2f, %.2f] para un espacio de %.2f"
+            % (n["cuerpo"], S.CUERPO_MIN * espacio,
+               S.CUERPO_MAX * espacio, espacio))
+
     # --- volver a estampar sin tocar nada da lo mismo ---------------------
     otra = S.estampar_resueltas(pdf, carpeta / "igual.pdf", hoja)
     assert otra == puestas, "%d != %d" % (otra, puestas)
