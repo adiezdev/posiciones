@@ -2019,8 +2019,14 @@ def altura_en_punto(hoja_pagina: dict, x: float, y: float,
 # Cuerpo de letra de los números, en espacios de pentagrama. En pasajes
 # rápidos las notas van a dos espacios unas de otras, así que la cifra tiene
 # que encoger o se solapan entre sí.
-CUERPO_MAX = 2.0
-CUERPO_MIN = 1.25
+# Dos espacios de pentagrama era demasiado. En una partitura apretada —la
+# que lo destapó tenía el pentagrama a 3,72 pt— las notas van espaciadas
+# pero el pentagrama es pequeño, así que la fórmula de abajo se iba al
+# tope y las cifras salían el doble de altas que un espacio: legibles,
+# pero gordas y amontonadas al lado de una música menuda. Una digitación
+# grabada a mano anda por vez y media el espacio, no por el doble.
+CUERPO_MAX = 1.5
+CUERPO_MIN = 1.05
 OCUPACION = 0.80      # parte del hueco entre notas que puede ocupar la cifra
 
 

@@ -350,9 +350,13 @@ def _pintar_pagina(lienzo, punto, ficha: dict, verdad: List[dict],
             _recta(lienzo, punto, n["x_omr"], y - 1.5, n["x"], y - 1.5)
             _recta(lienzo, punto, n["x_omr"], y - 3.0, n["x_omr"], y)
 
-        etiqueta = n["texto"]
-        _texto(lienzo, punto, x - 1.5, y + 2.0, etiqueta,
-               max(4.0, 1.4 * espacio), giro_texto)
+        # El mismo cuerpo que ha usado el estampado, no uno parecido: si
+        # cada uno calcula el suyo, el diagnóstico enseña una partitura
+        # que no es la que se descarga. Pasó: el PDF final salía con las
+        # cifras un 40% más anchas y parecía mal colocado cuando lo que
+        # cambiaba era el tamaño.
+        cuerpo = n.get("cuerpo") or max(4.0, 1.4 * espacio)
+        _texto(lienzo, punto, x - 1.5, y + 2.0, n["texto"], cuerpo, giro_texto)
 
         if n["estado"].startswith("descartada"):
             _recta(lienzo, punto, x - 3, y - 3, x + 3, y + 4)
