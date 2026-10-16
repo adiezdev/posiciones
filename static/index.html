@@ -273,20 +273,29 @@
     font-size: 0.9rem;
   }
 
-  #toast {
-    position: fixed;
-    bottom: 20px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0,0,0,0.85);
-    color: #fff;
-    padding: 10px 16px;
-    border-radius: 8px;
-    font-size: 0.9rem;
-    display: none;
-    z-index: 1000;
+  .viejo {
+    margin: 14px 0 0;
+    padding: 9px 12px;
+    border-left: 3px solid var(--aviso, #b4700d);
+    background: rgba(180, 112, 13, .07);
+    color: var(--tinta-media);
+    font-size: 0.85rem;
+    line-height: 1.45;
   }
-  #toast.show { display: block; }
+  .version {
+    display: block;
+    margin-top: 8px;
+    font-size: 0.75rem;
+    opacity: .7;
+    font-variant-numeric: tabular-nums;
+  }
+  .ayuda {
+    margin: 6px 0 0;
+    color: var(--tinta-media);
+    font-size: 0.82rem;
+    line-height: 1.45;
+  }
+
   footer {
     margin-top: 56px;
     padding-top: 20px;
@@ -344,6 +353,20 @@
       <input id="titulo" type="text" placeholder="Se toma del original si lo dejas vacío">
     </p>
     <p class="campo">
+      <label for="lectura">Cómo está escrita la particella</label>
+      <select id="lectura">
+        <option value="auto">Deducirlo de la clave (recomendado)</option>
+        <option value="do-fa">En Do, clave de fa</option>
+        <option value="sib-sol">En Sib, clave de sol (banda)</option>
+        <option value="do-sol">En Do, clave de sol</option>
+        <option value="octava-baja">Escrita una octava por encima</option>
+      </select>
+      <p class="ayuda">
+        Una particella de "Trombón en Sib" en clave de sol suena una novena
+        más grave de lo que se ve. El archivo no lo dice en ninguna parte,
+        así que si se elige mal salen todos los números equivocados.
+      </p>
+
       <label for="criterio">Al elegir entre varias posiciones</label>
       <select id="criterio">
         <option value="equilibrado" selected>Equilibrado (recomendado)</option>
@@ -379,18 +402,33 @@
   <footer>
     Los números son la posición más cómoda según el contexto, no la única
     posible. Revisa siempre el resultado antes de tocarlo en un ensayo.
+    <span id="version" class="version"></span>
   </footer>
 </main>
 
+<script src="/static/version.js"></script>
 <script>
 const ETAPAS = {
   en_cola:      { texto: "En cola",                 marca: 0 },
+  preparando:   { texto: "Revisando el PDF",        marca: 1 },
   reconociendo: { texto: "Leyendo la partitura",    marca: 2 },
   anotando:     { texto: "Calculando posiciones",   marca: 4 },
   generando:    { texto: "Dibujando el PDF",        marca: 6 },
   listo:        { texto: "Listo",                   marca: 7 },
-  error:        { texto: "No ha salido",            marca: 0 }
+  error:        { texto: "No ha salido",            marca: 0 },
+  cancelado:    { texto: "Cancelado",               marca: 0 }
 };
+
+// Estados en los que todavía se puede cancelar.
+const EN_MARCHA = ["en_cola", "preparando", "reconociendo", "anotando",
+                   "generando"];
+
+// Version que corre ahora mismo, para avisar de los resultados viejos.
+// Una partitura procesada hace dias se genero con el codigo de hace dias:
+// si desde entonces se ha arreglado algo, el PDF que tienes guardado NO
+// lo lleva, y el diagnostico —que se calcula al descargarlo— si. Los dos
+// discrepan y no hay forma de saber por que si nadie lo dice.
+let versionActual = null;
 
 const zona = document.getElementById("zona");
 const fichero = document.getElementById("fichero");
@@ -403,6 +441,7 @@ const reguladores = document.getElementById("reguladores");
 const etiqueta = document.getElementById("etiqueta");
 const original = document.getElementById("original");
 const criterio = document.getElementById("criterio");
+const lectura = document.getElementById("lectura");
 const barra = document.getElementById("barra");
 const cuenta = document.getElementById("cuenta");
 const limpiar = document.getElementById("limpiar");
@@ -435,6 +474,7 @@ async function subir(ficheros) {
     datos.append("sin_reguladores", reguladores.checked ? "true" : "false");
     datos.append("etiqueta", etiqueta.value);
     datos.append("criterio", criterio.value);
+    datos.append("lectura", lectura.value);
     datos.append("mantener_original", original.checked ? "true" : "false");
     // Si subes varios a la vez, el título escrito a mano solo vale para uno.
     datos.append("titulo", pdfs.length === 1 ? titulo.value : "");
@@ -474,7 +514,36 @@ async function refrescar() {
     };
   });
 
-  const activos = trabajos.some(t => !["listo", "error"].includes(t.estado));
+  lista.querySelectorAll("[data-cancelar]").forEach(b => {
+    b.onclick = async () => {
+      b.disabled = true;
+      b.textContent = "Cancelando…";
+      try {
+        await fetch("/api/trabajos/" + b.dataset.cancelar + "/cancelar",
+                    { method: "POST" });
+      } finally {
+        refrescar();
+      }
+    };
+  });
+
+  // Volver a lanzar es subir otra vez el mismo PDF con los mismos ajustes,
+  // así que basta con reenviar el formulario desde el servidor... pero no
+  // hay tal cosa: se vuelve a encolar el trabajo que ya existe.
+  lista.querySelectorAll("[data-reintentar]").forEach(b => {
+    b.onclick = async () => {
+      b.disabled = true;
+      b.textContent = "Reencolando…";
+      try {
+        await fetch("/api/trabajos/" + b.dataset.reintentar + "/reintentar",
+                    { method: "POST" });
+      } finally {
+        refrescar();
+      }
+    };
+  });
+
+  const activos = trabajos.some(t => EN_MARCHA.includes(t.estado));
   clearTimeout(temporizador);
   if (activos) temporizador = setTimeout(refrescar, 2500);
 }
@@ -491,9 +560,12 @@ function pintar(t) {
 
   let cuerpo = "";
 
-  if (t.estado === "error") {
-    cuerpo = `<p class="fallo">${escapar(t.error)}</p>
+  if (t.estado === "error" || t.estado === "cancelado") {
+    cuerpo = `<p class="${t.estado === "error" ? "fallo" : ""}"
+        style="${t.estado === "cancelado" ? "color:var(--tinta-media)" : ""}"
+        >${escapar(t.error || "")}</p>
       <div class="acciones">
+        <button class="boton" data-reintentar="${t.id}">Volver a intentarlo</button>
         <button class="boton secundario" data-borrar="${t.id}">Quitar de la lista</button>
       </div>`;
   } else if (t.estado === "listo") {
@@ -502,16 +574,32 @@ function pintar(t) {
     const resumen = avisos.length === 0
       ? `${t.notas} notas anotadas, sin nada raro.`
       : `${t.notas} notas anotadas. ${errores} puntos a revisar y ${avisos.length - errores} dudas.`;
+    const dudosas = t.dudosas
+      ? ` ${t.dudosas} números salen en gris: la herramienta los ha colocado con menos certeza y conviene mirarlos.`
+      : "";
     const papel = t.papel ? ` Papel: ${t.papel}` +
       (t.ancho_util_mm ? `, ancho útil ${t.ancho_util_mm} mm.` : ".") : "";
     const nota = t.nota_modo ? ` ${t.nota_modo}` : "";
     const coord = t.modo_x
       ? ` Coordenadas relativas al ${t.modo_x} (encaje ${t.encaje}%).` : "";
+    const geom = t.geometria ? ` Geometría: ${t.geometria}.` : "";
+    const entrada = t.enderezado
+      ? " La partitura venía torcida y se ha enderezado antes de leerla."
+      : "";
 
     cuerpo = `
-      <p style="margin:14px 0 0;color:var(--tinta-media);font-size:.9rem">${escapar(resumen + papel + coord + nota)}</p>
+      <p style="margin:14px 0 0;color:var(--tinta-media);font-size:.9rem">${escapar(resumen + dudosas + entrada + papel + coord + geom + nota)}</p>
+      ${t.version && versionActual && t.version !== versionActual ? `
+      <p class="viejo">Este resultado se generó con una versión anterior de
+        la herramienta. Si ves números fuera de sitio, vuelve a generarlo:
+        el PDF guardado no lleva los arreglos posteriores, pero el
+        diagnóstico sí, y por eso pueden no coincidir.</p>` : ""}
       <div class="acciones">
         <a class="boton" href="/api/trabajos/${t.id}/pdf">Descargar el PDF</a>
+        ${t.version && versionActual && t.version !== versionActual
+          ? `<button class="boton" data-reintentar="${t.id}">Volver a generar</button>` : ""}
+        ${t.revisable ? `<a class="boton" href="/revisar?id=${t.id}">Repasar los números</a>` : ""}
+        ${t.revisable ? `<a class="boton secundario" href="/api/trabajos/${t.id}/diagnostico" title="PDF con lo que ha visto la máquina: pentagramas, cabezas y de dónde sale cada número">Diagnóstico</a>` : ""}
         <a class="boton secundario" href="/api/trabajos/${t.id}/musicxml">Descargar MusicXML</a>
         <button class="boton secundario" data-borrar="${t.id}">Borrar</button>
       </div>
@@ -526,6 +614,9 @@ function pintar(t) {
       <div class="vara">
         <div class="corredera" style="left:${izquierda}%"></div>
         <div class="marcas">${[1,2,3,4,5,6,7].map(n => `<i>${n}</i>`).join("")}</div>
+      </div>
+      <div class="acciones">
+        <button class="boton secundario" data-cancelar="${t.id}">Cancelar</button>
       </div>`;
   }
 
@@ -560,26 +651,21 @@ ajustarCampos();
 
 refrescar();
 
-let currentVersion = null;
-async function checkVersion() {
-  try {
-    const r = await fetch("/api/version?t=" + Date.now());
-    if (!r.ok) return;
-    const d = await r.json();
-    if (currentVersion === null) {
-      currentVersion = d.version;
-      return;
-    }
-    if (d.version && d.version !== currentVersion) {
-      const t = document.getElementById("toast");
-      if (t) t.classList.add("show");
-      setTimeout(() => window.location.reload(), 2500);
-    }
-  } catch (e) {}
-}
-checkVersion();
-setInterval(checkVersion, 10000);
+// El NAS se actualiza solo, así que una pestaña abierta se queda con la
+// versión vieja sin enterarse. Aquí sí se puede recargar sola: lo único
+// que se perdería es el formulario a medio rellenar, y por eso se avisa
+// con cuenta atrás y se puede cancelar. Los trabajos viven en el servidor.
+VigilarVersion.iniciar({
+  hayCambios: () => Boolean(
+    (fichero.files && fichero.files.length)
+    || titulo.value.trim() || etiqueta.value.trim()),
+  alLeer: (v) => {
+    versionActual = v;
+    const el = document.getElementById("version");
+    if (el) el.textContent = "versión " + String(v).slice(0, 12);
+    refrescar();
+  },
+});
 </script>
-  <div id="toast">Nueva versión disponible. Recarga la página.</div>
 </body>
 </html>

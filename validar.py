@@ -43,7 +43,13 @@ def _nombre_parte(p, i: int) -> str:
     return (getattr(p, "partName", None) or f"parte {i + 1}").strip()
 
 
-def validar(score, transpositor: bool = False) -> List[Aviso]:
+def validar(score, transpositor: bool = False,
+            semitonos: int = 0) -> List[Aviso]:
+    """
+    `semitonos` pasa de la altura escrita a la que suena. El registro del
+    instrumento se comprueba sobre la que suena: en una particella en Sib
+    todo lo escrito cae dentro del registro aunque la obra se salga de él.
+    """
     minimo = MIDI_MIN_F if transpositor else MIDI_MIN
     avisos: List[Aviso] = []
 
@@ -84,7 +90,7 @@ def validar(score, transpositor: bool = False) -> List[Aviso]:
             for el in m.recurse().notes:
                 objetivo = (max(el.notes, key=lambda x: x.pitch.midi)
                             if isinstance(el, chord.Chord) else el)
-                midi = objetivo.pitch.midi
+                midi = objetivo.pitch.midi + semitonos
 
                 if midi < minimo:
                     avisos.append(Aviso(

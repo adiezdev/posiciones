@@ -29,8 +29,15 @@ def _viene_ligada(n) -> bool:
 def anotar_parte(parte: stream.Stream, transpositor: bool = False,
                  marcar_fuera_rango: bool = True,
                  preferir_cercanas: bool = False,
-                 peso_movimiento=None) -> Tuple[int, int]:
-    """Anota una parte. Devuelve (anotadas, fuera_de_rango)."""
+                 peso_movimiento=None, semitonos: int = 0) -> Tuple[int, int]:
+    """
+    Anota una parte. Devuelve (anotadas, fuera_de_rango).
+
+    `semitonos` es lo que hay que sumarle a la altura escrita para saber la
+    que suena, que es la que decide la vara. En una particella de banda de
+    "Trombón en Sib" en clave de sol son -14, y sin eso todos los números
+    salen mal sin que nada lo advierta.
+    """
     elementos: List[tuple] = []
     for el in parte.recurse().notes:
         # En divisi (acordes del OMR) anotamos solo la voz superior.
@@ -47,7 +54,7 @@ def anotar_parte(parte: stream.Stream, transpositor: bool = False,
         except Exception:
             offset = float(el.offset)
         datos.append(Nota(
-            midi=obj.pitch.midi,
+            midi=obj.pitch.midi + semitonos,
             offset=offset,
             duracion=float(el.quarterLength or 1.0),
             ligada=_viene_ligada(el),
@@ -92,12 +99,12 @@ def quitar_reguladores(score: stream.Score) -> int:
 def anotar(score: stream.Score, transpositor: bool = False,
            marcar_fuera_rango: bool = True,
            preferir_cercanas: bool = False,
-           peso_movimiento=None) -> Tuple[int, int]:
+           peso_movimiento=None, semitonos: int = 0) -> Tuple[int, int]:
     partes = list(score.parts) if hasattr(score, "parts") and len(score.parts) else [score]
     ok = fuera = 0
     for p in partes:
         a, b = anotar_parte(p, transpositor, marcar_fuera_rango,
-                            preferir_cercanas, peso_movimiento)
+                            preferir_cercanas, peso_movimiento, semitonos)
         ok += a
         fuera += b
     return ok, fuera

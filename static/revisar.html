@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Repasar posiciones</title>
+<style>
+  :root {
+    --papel: #fbfaf7;
+    --tinta: #1c1a17;
+    --tinta-media: #6b6660;
+    --pauta: #ded8cf;
+    --acento: #8a2b2b;
+    --verde: #2f6b3f;
+    --aviso: #b4700d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--papel);
+    color: var(--tinta);
+    font: 16px/1.5 -apple-system, "Segoe UI", Roboto, Helvetica, sans-serif;
+  }
+
+  header {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    padding: 12px 20px;
+    background: rgba(251, 250, 247, 0.96);
+    border-bottom: 1px solid var(--pauta);
+    backdrop-filter: blur(6px);
+  }
+  header h1 { margin: 0; font-size: 1rem; font-weight: 600; }
+  header .hueco { flex: 1; }
+
+  .boton {
+    border: 1px solid var(--pauta); background: #fff; color: var(--tinta);
+    padding: 7px 14px; border-radius: 7px; cursor: pointer;
+    font-size: 0.9rem; font-family: inherit;
+  }
+  .boton:hover { border-color: var(--tinta-media); }
+  .boton.principal {
+    background: var(--tinta); color: var(--papel); border-color: var(--tinta);
+  }
+  .boton:disabled { opacity: .45; cursor: default; }
+
+  .pista { color: var(--tinta-media); font-size: 0.85rem; }
+  .contador { font-variant-numeric: tabular-nums; }
+
+  /* La hoja decide su tamaño y el contenedor se desplaza si no cabe.
+     Antes era al revés: la imagen se encogía para caber (max-width:100%),
+     así que una partitura vertical salía diminuta, una apaisada salía a
+     otra escala distinta, y no había forma de acercarse para leer nada. */
+  main { padding: 20px; margin: 0 auto; overflow-x: auto; }
+
+  .hoja {
+    position: relative; margin: 0 auto 26px; background: #fff;
+    border: 1px solid var(--pauta); box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    /* El alto sale de la proporción de la página, así que la caja ya tiene
+       su tamaño antes de que cargue la imagen y los números no bailan. */
+    width: var(--ancho); aspect-ratio: var(--proporcion);
+  }
+  .hoja img { display: block; width: 100%; height: 100%; }
+
+  .zoom { display: flex; gap: 4px; align-items: center; }
+  .zoom output {
+    min-width: 46px; text-align: center; font-size: .85rem;
+    color: var(--tinta-media); font-variant-numeric: tabular-nums;
+  }
+  .version-pie {
+    text-align: center; color: var(--tinta-media);
+    font-size: .75rem; padding: 0 0 24px;
+  }
+
+  .num {
+    position: absolute; transform: translate(-50%, -50%);
+    font: 600 13px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--tinta);
+    background: rgba(255,255,255,.72);
+    border: 1px solid transparent; border-radius: 4px;
+    padding: 1px 3px; cursor: grab; user-select: none;
+    white-space: nowrap; touch-action: none;
+  }
+  .num.arrastrando {
+    cursor: grabbing; z-index: 25;
+    border-color: var(--acento); background: #fff;
+    box-shadow: 0 2px 10px rgba(0,0,0,.2);
+  }
+  .num:hover { border-color: var(--acento); background: #fff; }
+  .num.dudosa { color: var(--aviso); border-color: rgba(180,112,13,.35); }
+  .num.mano   { color: var(--verde); border-color: rgba(47,107,63,.45); }
+  .num.elegida { border-color: var(--acento); box-shadow: 0 0 0 2px rgba(138,43,43,.18); }
+
+  /* Guía vertical: enseña por dónde va el número mientras se arrastra,
+     que es lo que cuesta ver a ojo contra el pentagrama. */
+  .guia {
+    position: absolute; top: 0; bottom: 0; width: 1px;
+    background: var(--acento); opacity: .45; pointer-events: none; z-index: 24;
+  }
+
+  .ficha {
+    position: absolute; z-index: 30; transform: translate(-50%, 8px);
+    background: #fff; border: 1px solid var(--pauta); border-radius: 9px;
+    box-shadow: 0 6px 20px rgba(0,0,0,.14); padding: 10px;
+    display: flex; flex-direction: column; gap: 8px; width: 220px;
+  }
+  .ficha .fila { display: flex; gap: 6px; align-items: center; }
+  .ficha input {
+    flex: 1; font: 600 15px/1 ui-monospace, Menlo, Consolas, monospace;
+    padding: 6px 8px; border: 1px solid var(--pauta); border-radius: 6px;
+    text-align: center;
+  }
+  .ficha .sugerencias { display: flex; flex-wrap: wrap; gap: 4px; }
+  .ficha .sug {
+    border: 1px solid var(--pauta); background: #fff; border-radius: 5px;
+    padding: 3px 8px; cursor: pointer; font: 600 13px/1 monospace;
+  }
+  .ficha .sug:hover { border-color: var(--acento); color: var(--acento); }
+  .ficha .nota { color: var(--tinta-media); font-size: .78rem; line-height: 1.35; }
+
+  .barra-estado {
+    position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%);
+    background: var(--tinta); color: var(--papel);
+    padding: 9px 16px; border-radius: 999px; font-size: .88rem;
+    opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 40;
+  }
+  .barra-estado.visible { opacity: 1; }
+
+  .hoja.moviendo { cursor: grabbing; }
+  .hoja.moviendo img { pointer-events: none; }
+
+  .cargando, .fallo { text-align: center; color: var(--tinta-media); padding: 60px 20px; }
+  .fallo { color: var(--acento); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 id="titulo">Repasar posiciones</h1>
+  <span class="pista contador" id="cuenta"></span>
+  <span class="hueco"></span>
+  <span class="zoom">
+    <button class="boton" id="menos" title="Alejar" aria-label="Alejar">−</button>
+    <output id="nivel">100%</output>
+    <button class="boton" id="mas" title="Acercar" aria-label="Acercar">+</button>
+    <button class="boton" id="ajustar" title="Ajustar al ancho de la ventana">Ajustar</button>
+  </span>
+  <span class="pista" id="ayuda">Pincha un número para cambiarlo, arrástralo para moverlo. Pincha en una nota sin número para añadirlo.</span>
+  <button class="boton" id="descargar">Descargar PDF</button>
+  <button class="boton principal" id="guardar" disabled>Guardar cambios</button>
+</header>
+
+<main id="contenido"><p class="cargando">Cargando la partitura…</p></main>
+<p class="version-pie" id="version"></p>
+<div class="barra-estado" id="aviso"></div>
+
+<script src="/static/version.js"></script>
+<script>
+// Las posiciones que existen en el instrumento. Se ofrecen como atajo al
+// corregir, pero el campo es libre: si alguien quiere escribir otra cosa,
+// es su partitura.
+const POSICIONES = ["1", "2", "3", "4", "5", "6", "7",
+                    "T1", "T2", "T3", "T4", "T5", "T6", "?"];
+const UMBRAL_DUDOSA = 0.70;
+
+const parametros = new URLSearchParams(location.search);
+const ID = parametros.get("id");
+// A qué resolución se piden las páginas. Por encima del zoom habitual,
+// para que al acercarse no se vea pixelado.
+const ESCALA = 2;
+
+let hoja = null;
+let sucio = false;
+let ficha = null;
+
+const $ = (sel) => document.querySelector(sel);
+const contenido = $("#contenido");
+
+// Puntos de PDF por píxel de pantalla. Todas las páginas usan el mismo,
+// así que una partitura con páginas verticales y apaisadas mezcladas se ve
+// a la misma escala y no parece que el zoom vaya solo.
+const ZOOM_MIN = 0.35, ZOOM_MAX = 4;
+let zoom = Number(localStorage.getItem("posiciones:zoom")) || 0;
+
+function anchoDisponible() {
+  return Math.max(contenido.clientWidth - 40, 240);
+}
+
+function zoomDeAjuste() {
+  if (!hoja || !hoja.paginas.length) return 1;
+  // La página más ancha es la que manda: si cabe esa, caben todas.
+  const ancho = Math.max(...hoja.paginas.map((p) => p.ancho_pt));
+  return Math.min(anchoDisponible() / ancho, ZOOM_MAX);
+}
+
+function aplicarZoom(guardarlo) {
+  if (!hoja) return;
+  const z = zoom || zoomDeAjuste();
+  for (const pagina of hoja.paginas) {
+    const caja = contenido.querySelector(`[data-pagina="${pagina.pagina}"]`);
+    if (!caja) continue;
+    caja.style.setProperty("--ancho", (pagina.ancho_pt * z) + "px");
+    caja.style.setProperty("--proporcion",
+                           pagina.ancho_pt + " / " + pagina.alto_pt);
+  }
+  $("#nivel").value = Math.round(z * 100) + "%";
+  if (guardarlo) {
+    try { localStorage.setItem("posiciones:zoom", String(zoom)); } catch (_) {}
+  }
+}
+
+function cambiarZoom(factor) {
+  const actual = zoom || zoomDeAjuste();
+  zoom = Math.min(Math.max(actual * factor, ZOOM_MIN), ZOOM_MAX);
+  cerrarFicha();
+  aplicarZoom(true);
+}
+
+function avisar(texto) {
+  const barra = $("#aviso");
+  barra.textContent = texto;
+  barra.classList.add("visible");
+  clearTimeout(avisar._t);
+  avisar._t = setTimeout(() => barra.classList.remove("visible"), 2600);
+}
+
+function marcarSucio() {
+  sucio = true;
+  $("#guardar").disabled = false;
+  actualizarCuenta();
+}
+
+function actualizarCuenta() {
+  if (!hoja) return;
+  let total = 0, dudosos = 0, mano = 0;
+  for (const p of hoja.paginas) {
+    for (const n of p.numeros) {
+      total++;
+      if (n.a_mano) mano++;
+      else if ((n.confianza ?? 1) < UMBRAL_DUDOSA) dudosos++;
+    }
+  }
+  const trozos = [`${total} números`];
+  if (dudosos) trozos.push(`${dudosos} por repasar`);
+  if (mano) trozos.push(`${mano} corregidos`);
+  $("#cuenta").textContent = trozos.join(" · ");
+}
+
+// --- pintar -----------------------------------------------------------------
+
+function clasesDe(n) {
+  const clases = ["num"];
+  if (n.a_mano) clases.push("mano");
+  else if ((n.confianza ?? 1) < UMBRAL_DUDOSA) clases.push("dudosa");
+  return clases.join(" ");
+}
+
+function colocar(el, pagina, n) {
+  // Las coordenadas vienen en puntos de la página tal como se ve; la
+  // imagen puede estar escalada por el navegador, así que todo va en %.
+  el.style.left = (100 * n.x / pagina.ancho_pt) + "%";
+  el.style.top = (100 * n.y / pagina.alto_pt) + "%";
+}
+
+function pintar() {
+  contenido.innerHTML = "";
+  for (const pagina of hoja.paginas) {
+    const caja = document.createElement("div");
+    caja.className = "hoja";
+    caja.dataset.pagina = pagina.pagina;
+
+    const img = document.createElement("img");
+    img.src = `/api/trabajos/${encodeURIComponent(ID)}/pagina/${pagina.pagina}.png?escala=${ESCALA}`;
+    img.alt = `Página ${pagina.pagina + 1} de ${hoja.paginas.length}`;
+    img.loading = "lazy";
+    img.draggable = false;
+    caja.appendChild(img);
+
+    for (const n of pagina.numeros) caja.appendChild(crearNumero(pagina, n));
+
+    caja.addEventListener("click", (e) => {
+      if (e.target !== img) return;
+      const r = img.getBoundingClientRect();
+      anadir(pagina, caja,
+             (e.clientX - r.left) / r.width * pagina.ancho_pt,
+             (e.clientY - r.top) / r.height * pagina.alto_pt);
+    });
+
+    contenido.appendChild(caja);
+  }
+  aplicarZoom(false);
+  actualizarCuenta();
+}
+
+function crearNumero(pagina, n) {
+  const el = document.createElement("button");
+  el.className = clasesDe(n);
+  el.textContent = n.texto;
+  el.title = n.a_mano ? "Corregido a mano"
+           : (n.confianza ?? 1) < UMBRAL_DUDOSA
+             ? "Colocado con poca certeza: conviene mirarlo" : "";
+  colocar(el, pagina, n);
+  n._el = el;
+  el.addEventListener("pointerdown", (e) => empezarArrastre(e, pagina, n, el));
+  el.addEventListener("click", (e) => {
+    e.stopPropagation();
+    // Si venía de arrastrar, el clic es el final del gesto, no una
+    // intención de abrir la ficha.
+    if (el._arrastrado) { el._arrastrado = false; return; }
+    abrirFicha(pagina, n, el);
+  });
+  return el;
+}
+
+// Por debajo de esto el gesto es un clic con pulso, no un arrastre.
+const UMBRAL_ARRASTRE = 3;   // píxeles de pantalla
+
+function empezarArrastre(e, pagina, n, el) {
+  if (e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+  cerrarFicha();
+  el._arrastrado = false;
+
+  const caja = el.parentElement;
+  const img = caja.querySelector("img");
+  const r = img.getBoundingClientRect();
+  const inicio = { x: e.clientX, y: e.clientY };
+  const origen = { x: n.x, y: n.y };
+  let moviendo = false;
+  let guia = null;
+
+  el.setPointerCapture(e.pointerId);
+
+  function aPuntos(ev) {
+    return {
+      x: origen.x + (ev.clientX - inicio.x) / r.width * pagina.ancho_pt,
+      y: origen.y + (ev.clientY - inicio.y) / r.height * pagina.alto_pt,
+    };
+  }
+
+  function mover(ev) {
+    if (!moviendo) {
+      if (Math.hypot(ev.clientX - inicio.x, ev.clientY - inicio.y) < UMBRAL_ARRASTRE)
+        return;
+      moviendo = true;
+      el._arrastrado = true;
+      el.classList.add("arrastrando");
+      caja.classList.add("moviendo");
+      guia = document.createElement("div");
+      guia.className = "guia";
+      caja.appendChild(guia);
+    }
+    const p = aPuntos(ev);
+    // Que no se escape de la hoja.
+    n.x = Math.min(Math.max(p.x, 0), pagina.ancho_pt);
+    n.y = Math.min(Math.max(p.y, 0), pagina.alto_pt);
+    colocar(el, pagina, n);
+    guia.style.left = (100 * n.x / pagina.ancho_pt) + "%";
+  }
+
+  function soltar() {
+    // Tras el pointerup la captura ya esta suelta y volver a soltarla
+    // lanza InvalidPointerId en algunos navegadores.
+    try { el.releasePointerCapture?.(e.pointerId); } catch (_) {}
+    el.removeEventListener("pointermove", mover);
+    el.removeEventListener("pointerup", soltar);
+    el.removeEventListener("pointercancel", cancelar);
+    if (guia) guia.remove();
+    el.classList.remove("arrastrando");
+    caja.classList.remove("moviendo");
+    if (!moviendo) return;
+    // Moverlo a mano es decir "aquí va": deja de ser dudoso.
+    n.a_mano = true;
+    n.confianza = 1;
+    refrescar(pagina, n);
+    marcarSucio();
+  }
+
+  function cancelar() {
+    n.x = origen.x;
+    n.y = origen.y;
+    colocar(el, pagina, n);
+    moviendo = false;
+    soltar();
+  }
+
+  el.addEventListener("pointermove", mover);
+  el.addEventListener("pointerup", soltar);
+  el.addEventListener("pointercancel", cancelar);
+}
+
+function refrescar(pagina, n) {
+  if (!n._el) return;
+  n._el.textContent = n.texto;
+  n._el.className = clasesDe(n);
+  colocar(n._el, pagina, n);
+}
+
+// --- editar -----------------------------------------------------------------
+
+function cerrarFicha() {
+  if (ficha) { ficha._cerrar?.(); ficha.remove(); ficha = null; }
+  document.querySelectorAll(".num.elegida")
+          .forEach((e) => e.classList.remove("elegida"));
+}
+
+function abrirFicha(pagina, n, el) {
+  cerrarFicha();
+  el.classList.add("elegida");
+
+  // Si la ficha se cierra por otra via (arrastrar, Escape, clic fuera), el
+  // blur diferido del campo llega despues y no debe aplicar nada: marcaria
+  // como corregido a mano un numero que nadie ha tocado.
+  let vigente = true;
+  ficha = document.createElement("div");
+  ficha.className = "ficha";
+  ficha.style.left = el.style.left;
+  ficha.style.top = el.style.top;
+  ficha.addEventListener("click", (e) => e.stopPropagation());
+
+  const fila = document.createElement("div");
+  fila.className = "fila";
+  const campo = document.createElement("input");
+  campo.value = n.texto;
+  campo.maxLength = 4;
+  campo.setAttribute("aria-label", "Número de posición");
+  const borrar = document.createElement("button");
+  borrar.className = "boton";
+  borrar.textContent = "Quitar";
+  fila.append(campo, borrar);
+
+  const sugerencias = document.createElement("div");
+  sugerencias.className = "sugerencias";
+  for (const p of POSICIONES) {
+    const b = document.createElement("button");
+    b.className = "sug";
+    b.textContent = p;
+    b.addEventListener("click", () => { campo.value = p; aplicar(); });
+    sugerencias.appendChild(b);
+  }
+
+  const nota = document.createElement("p");
+  nota.className = "nota";
+  nota.textContent = (n.a_mano
+    ? "Lo has corregido tú."
+    : (n.confianza ?? 1) < UMBRAL_DUDOSA
+      ? "La herramienta lo ha colocado con poca certeza."
+      : "Leído del reconocimiento.")
+    + " Arrástralo para moverlo, o Alt + flechas para afinar.";
+
+  ficha.append(fila, sugerencias, nota);
+  ficha._cerrar = () => { vigente = false; };
+  el.parentElement.appendChild(ficha);
+  campo.focus();
+  campo.select();
+
+  function aplicar() {
+    if (!vigente) return;
+    const texto = campo.value.trim();
+    if (!texto) { quitar(); return; }
+    n.texto = texto;
+    n.a_mano = true;
+    n.confianza = 1;
+    refrescar(pagina, n);
+    marcarSucio();
+    cerrarFicha();
+  }
+
+  function quitar() {
+    if (!vigente) return;
+    const i = pagina.numeros.indexOf(n);
+    if (i >= 0) pagina.numeros.splice(i, 1);
+    if (n._el) n._el.remove();
+    marcarSucio();
+    cerrarFicha();
+  }
+
+  borrar.addEventListener("click", quitar);
+  campo.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); aplicar(); }
+    if (e.key === "Escape") { e.preventDefault(); cerrarFicha(); }
+    if (e.key === "Delete" && !campo.value) quitar();
+    // Ajuste fino sin ratón: un punto por pulsación, diez con Mayúsculas.
+    const paso = e.shiftKey ? 10 : 1;
+    const flechas = { ArrowLeft: [-paso, 0], ArrowRight: [paso, 0],
+                      ArrowUp: [0, -paso], ArrowDown: [0, paso] };
+    if (flechas[e.key] && (e.altKey || e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      n.x = Math.min(Math.max(n.x + flechas[e.key][0], 0), pagina.ancho_pt);
+      n.y = Math.min(Math.max(n.y + flechas[e.key][1], 0), pagina.alto_pt);
+      n.a_mano = true;
+      refrescar(pagina, n);
+      marcarSucio();
+    }
+  });
+  campo.addEventListener("blur", () => setTimeout(() => {
+    if (ficha && ficha.contains(document.activeElement)) return;
+    aplicar();
+  }, 120));
+}
+
+function anadir(pagina, caja, x, y) {
+  // El número nuevo hereda el tamaño y el sistema del vecino más cercano,
+  // para que no desentone con el resto de la línea.
+  let vecino = null, mejor = Infinity;
+  for (const m of pagina.numeros) {
+    const d = Math.hypot(m.x - x, m.y - y);
+    if (d < mejor) { mejor = d; vecino = m; }
+  }
+  const n = {
+    x, y: vecino ? vecino.y : y,
+    texto: "1",
+    sistema: vecino ? vecino.sistema : 0,
+    confianza: 1, a_mano: true, estimada: false,
+    cuerpo: vecino ? vecino.cuerpo : 0,
+  };
+  pagina.numeros.push(n);
+  const el = crearNumero(pagina, n);
+  caja.appendChild(el);
+  marcarSucio();
+  abrirFicha(pagina, n, el);
+}
+
+document.addEventListener("click", cerrarFicha);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") cerrarFicha();
+});
+
+// --- guardar ----------------------------------------------------------------
+
+async function guardar() {
+  const boton = $("#guardar");
+  boton.disabled = true;
+  boton.textContent = "Guardando…";
+  const limpia = {
+    version: hoja.version,
+    paginas: hoja.paginas.map((p) => ({
+      pagina: p.pagina,
+      numeros: p.numeros.map(({ _el, ...resto }) => resto),
+    })),
+  };
+  try {
+    const r = await fetch(`/api/trabajos/${encodeURIComponent(ID)}/revision`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(limpia),
+    });
+    if (!r.ok) throw new Error(await r.text());
+    const datos = await r.json();
+    sucio = false;
+    avisar(`Guardado: ${datos.notas} números, ${datos.corregidas} a mano.`);
+  } catch (e) {
+    avisar("No se ha podido guardar: " + e.message);
+    boton.disabled = false;
+  } finally {
+    boton.textContent = "Guardar cambios";
+  }
+}
+
+$("#menos").addEventListener("click", () => cambiarZoom(1 / 1.25));
+$("#mas").addEventListener("click", () => cambiarZoom(1.25));
+$("#ajustar").addEventListener("click", () => {
+  zoom = 0;                      // 0 quiere decir "el que haga falta"
+  cerrarFicha();
+  aplicarZoom(true);
+});
+// Con zoom automático, al cambiar el tamaño de la ventana hay que rehacerlo.
+let remedir = null;
+window.addEventListener("resize", () => {
+  if (zoom) return;
+  clearTimeout(remedir);
+  remedir = setTimeout(() => aplicarZoom(false), 150);
+});
+
+$("#guardar").addEventListener("click", guardar);
+$("#descargar").addEventListener("click", () => {
+  location.href = `/api/trabajos/${encodeURIComponent(ID)}/pdf`;
+});
+
+window.addEventListener("beforeunload", (e) => {
+  if (sucio) { e.preventDefault(); e.returnValue = ""; }
+});
+
+// Aquí una recarga automática se llevaría las correcciones por delante,
+// así que con cambios sin guardar el aviso espera y ofrece guardar antes.
+VigilarVersion.iniciar({
+  hayCambios: () => sucio,
+  guardar: guardar,
+  alLeer: (v) => {
+    const el = $("#version");
+    if (el) el.textContent = "versión " + String(v).slice(0, 12);
+  },
+});
+
+// --- arranque ---------------------------------------------------------------
+
+(async function inicio() {
+  if (!ID) {
+    contenido.innerHTML = '<p class="fallo">Falta el identificador del trabajo en la dirección.</p>';
+    return;
+  }
+  try {
+    const r = await fetch(`/api/trabajos/${encodeURIComponent(ID)}/revision`);
+    if (!r.ok) throw new Error(await r.text());
+    hoja = await r.json();
+  } catch (e) {
+    contenido.innerHTML =
+      '<p class="fallo">No se puede repasar esta partitura.<br>' +
+      'Solo se pueden repasar las que se estamparon sobre tu PDF original.</p>';
+    return;
+  }
+  if (hoja.titulo) $("#titulo").textContent = hoja.titulo;
+  pintar();
+})();
+</script>
+</body>
+</html>
